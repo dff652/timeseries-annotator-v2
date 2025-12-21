@@ -986,6 +986,9 @@ export default {
     
     updateSelectionRange() {
       // Called by D3 when brush selection changes - add segment to current annotation
+      console.log('updateSelectionRange called, selection:', plottingApp.selection);
+      console.log('currentAnnotation.label:', this.currentAnnotation.label);
+      
       if (plottingApp.selection) {
         const segment = {
           start: plottingApp.selection.start,
@@ -995,13 +998,19 @@ export default {
         
         // Add to segments array if we have a label selected
         if (this.currentAnnotation.label) {
+          // Use Vue.set or push with reactivity
           this.currentAnnotation.segments.push(segment);
+          // Force reactivity update
+          this.currentAnnotation = { ...this.currentAnnotation, segments: [...this.currentAnnotation.segments] };
           this.selectionRange = `已添加 ${this.currentAnnotation.segments.length} 段`;
+          console.log('Segment added:', segment, 'Total segments:', this.currentAnnotation.segments.length);
           this.showToast(`已添加数据段: ${segment.start}-${segment.end}`, 'success');
         } else {
           this.selectionRange = `${segment.start} - ${segment.end} (${segment.count}点) - 请先选择标签`;
           this.showToast('请先选择一个标签', 'warning');
         }
+      } else {
+        console.log('No selection data from plottingApp');
       }
     },
     
