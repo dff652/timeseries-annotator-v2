@@ -24,9 +24,9 @@ module.exports = merge(baseWebpackConfig, {
     historyApiFallback: true,
     hot: true,
     compress: true,
-    host: 'localhost',
-    port: 3000,
-    open: true,
+    host: '0.0.0.0',  // Allow external access
+    port: 3003,
+    open: false,  // Don't auto-open browser
     overlay: {
       warnings: false,
       errors: true

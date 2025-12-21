@@ -1,10 +1,8 @@
 <template>
   <BaseView class="container-fluid" id="plotBox">
     <template v-slot:navbar-content>
-      <h1 class="navbar-brand"><div class="homeLink" @click="routeHandler().newHome()">TRAINSET<img id="logo" src="/static/trainset_logo.png"></div></h1>
+      <h1 class="navbar-brand"><div class="homeLink" @click="routeHandler().newHome()">📊 时序标注工具</div></h1>
       <ul class="navbar-nav ml-auto">
-        <div class="nav-link" @click="routeHandler().newHelp()">Help</div>
-        <div class="nav-link" @click="routeHandler().newLicense()">License</div>
         <li class="nav-item">
           <div class="nav-link" id="clear" @click="modalHandler().openClear()">Clear</div>
         </li>

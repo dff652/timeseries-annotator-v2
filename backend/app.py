@@ -154,7 +154,7 @@ def get_files():
 
 @app.route('/api/data/<filename>', methods=['GET'])
 def get_data(filename):
-    """Read CSV or Excel file data"""
+    """Read CSV or Excel file data with improved column detection and NaN handling"""
     try:
         filepath = os.path.join(CURRENT_DATA_PATH, filename)
         if not os.path.exists(filepath):
@@ -168,40 +168,119 @@ def get_data(filename):
         else:
             return jsonify({'success': False, 'error': 'Unsupported file format'}), 400
         
-        # Convert to TRAINSET format: time, val, series, label
-        # Try to detect columns
+        # Replace NaN with None for JSON compatibility
+        df = df.where(pd.notna(df), None)
+        
         columns = df.columns.tolist()
         
-        # Build response data
-        data = []
+        # Auto-detect time column (check multiple common names)
         time_col = None
-        val_col = None
-        
-        # Auto-detect time column
+        time_candidates = ['time', 'timestamp', 'datetime', 'date', '时间', '日期']
         for col in columns:
-            if col.lower() in ['time', 'timestamp', 'datetime', 'date']:
+            if col.lower() in time_candidates:
                 time_col = col
                 break
         
-        # Auto-detect value column  
+        # Auto-detect value column
+        val_col = None
+        val_candidates = ['value', 'val', 'values', '值', '数值']
         for col in columns:
-            if col.lower() in ['value', 'val', 'values']:
+            if col.lower() in val_candidates:
                 val_col = col
                 break
         
-        # If not found, use first two columns
-        if time_col is None and len(columns) >= 1:
-            time_col = columns[0]
-        if val_col is None and len(columns) >= 2:
-            val_col = columns[1]
+        # Auto-detect series column
+        series_col = None
+        series_candidates = ['series', 'channel', '序列', '通道', 'category']
+        for col in columns:
+            if col.lower() in series_candidates:
+                series_col = col
+                break
         
-        # Build data array
+        # Auto-detect label column
+        label_col = None
+        label_candidates = ['label', 'labels', '标签']
+        for col in columns:
+            if col.lower() in label_candidates:
+                label_col = col
+                break
+        
+        # Fallback: if no time column found, we'll use index
+        use_index_as_time = time_col is None
+        
+        # Fallback: if no value column, use first numeric column
+        if val_col is None:
+            for col in columns:
+                if col != time_col and col != series_col and col != label_col:
+                    if df[col].dtype in ['float64', 'int64', 'float32', 'int32']:
+                        val_col = col
+                        break
+        
+        # If still no value column, use second column or first if only one
+        if val_col is None and len(columns) >= 2:
+            val_col = columns[1] if columns[0] == time_col else columns[0]
+        elif val_col is None and len(columns) == 1:
+            val_col = columns[0]
+            use_index_as_time = True
+        
+        # Build data array with proper NaN handling
+        data = []
+        series_set = set()
+        
+        # Helper function to convert time to ISO format
+        def to_iso_time(time_val, idx):
+            if time_val is None:
+                return f"1970-01-01T00:00:{idx:02d}.000Z"
+            time_str = str(time_val)
+            # Try to parse various formats and convert to ISO
+            try:
+                from datetime import datetime
+                # Try common formats
+                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y/%m/%d %H:%M:%S', 
+                           '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S.%fZ']:
+                    try:
+                        dt = datetime.strptime(time_str, fmt)
+                        return dt.strftime('%Y-%m-%dT%H:%M:%S.000Z')
+                    except ValueError:
+                        continue
+                # Already ISO format or unrecognized - return as-is with T replacement
+                if 'T' not in time_str and ' ' in time_str:
+                    return time_str.replace(' ', 'T') + '.000Z'
+                return time_str
+            except Exception:
+                return time_str
+        
         for idx, row in df.iterrows():
+            # Handle time: use index if no time column, convert to ISO format
+            if use_index_as_time:
+                time_value = f"1970-01-01T00:00:{idx % 60:02d}.000Z"
+            else:
+                time_value = to_iso_time(row[time_col], idx)
+            
+            # Handle value: convert to float, default to 0 if NaN/None
+            try:
+                val_value = float(row[val_col]) if row[val_col] is not None else 0.0
+            except (ValueError, TypeError):
+                val_value = 0.0
+            
+            # Handle series
+            if series_col and row[series_col] is not None:
+                series_value = str(row[series_col])
+            else:
+                series_value = 'value'
+            series_set.add(series_value)
+            
+            # Handle label: ensure it's a string or empty
+            if label_col and row[label_col] is not None:
+                label_value = str(row[label_col])
+            else:
+                label_value = ''
+            
             data.append({
-                'time': str(row[time_col]) if time_col else str(idx),
-                'val': float(row[val_col]) if val_col and pd.notna(row[val_col]) else 0,
-                'series': 'value',
-                'label': ''
+                'time': time_value,
+                'val': val_value,
+                'series': series_value,
+                'label': label_value
             })
         
         return jsonify({
@@ -209,11 +288,19 @@ def get_data(filename):
             'filename': filename,
             'columns': columns,
             'data': data,
-            'seriesList': ['value'],
-            'labelList': []
+            'seriesList': list(series_set),
+            'labelList': [],
+            'hasTimeColumn': not use_index_as_time,
+            'detectedColumns': {
+                'time': time_col,
+                'value': val_col,
+                'series': series_col,
+                'label': label_col
+            }
         })
     except Exception as e:
-        return jsonify({'success': False, 'error': str(e)}), 500
+        import traceback
+        return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
 # ==================== Annotations ====================

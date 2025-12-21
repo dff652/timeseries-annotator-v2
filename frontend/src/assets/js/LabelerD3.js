@@ -1,5 +1,6 @@
 import * as d3 from "d3"
 import { largestTriangleThreeBucket } from "d3fc-sample";
+import $ from "jquery";
 const { DateTime } = require("luxon");
 
 d3.selection.prototype.moveToFront = function () {
@@ -29,7 +30,8 @@ export function drawLabeler(plottingApp) {
   //margins
   plottingApp.main_margin = { top: 10, right: 120, bottom: 100, left: 90 },
     plottingApp.context_margin = { top: 430, right: 140, bottom: 20, left: 90 },
-    plottingApp.maindiv_width = $("#maindiv").width(),
+    // Get width with minimum fallback
+    plottingApp.maindiv_width = Math.max($("#maindiv").width() || 800, 600),
     plottingApp.width = plottingApp.maindiv_width - plottingApp.main_margin.left - plottingApp.main_margin.right,
     plottingApp.main_height = 500 - plottingApp.main_margin.top - plottingApp.main_margin.bottom,
     plottingApp.context_height = 500 - plottingApp.context_margin.top - plottingApp.context_margin.bottom,
@@ -130,18 +132,30 @@ export function drawLabeler(plottingApp) {
 
   // load data format and brushes
   plottingApp.shiftKey = false,
-    plottingApp.brushSelector = "Invert",
-    plottingApp.selectedSeries = $("#seriesSelect option:selected").val(),
-    plottingApp.refSeries = $("#referenceSelect option:selected").val();
+    plottingApp.brushSelector = "Invert";
+
+  // Use pre-set values from Vue component if available, otherwise try DOM selector
+  // This is critical because selectors may not be populated yet when drawLabeler is called
+  if (!plottingApp.selectedSeries) {
+    var seriesFromDOM = $("#seriesSelect option:selected").val();
+    plottingApp.selectedSeries = seriesFromDOM || (plottingApp.seriesList && plottingApp.seriesList[0]) || 'value';
+  }
+  if (!plottingApp.refSeries) {
+    var refFromDOM = $("#referenceSelect option:selected").val();
+    plottingApp.refSeries = refFromDOM || (plottingApp.seriesList && plottingApp.seriesList[plottingApp.seriesList.length > 1 ? 1 : 0]) || 'value';
+  }
+
+  console.log('LabelerD3 init - selectedSeries:', plottingApp.selectedSeries, 'refSeries:', plottingApp.refSeries);
+  console.log('LabelerD3 init - csvData length:', plottingApp.csvData ? plottingApp.csvData.length : 0);
+
   // plot namespace (for svg selections associated with d3 objects)
   plottingApp.plot = {};
   // axis bounds & hoverinfo dict
   plottingApp.axisBounds = {},
     plottingApp.hoverinfo = {};
 
-  $(function () {
-    init();
-  });
+  // Initialize immediately since this is called after DOM is ready (via Vue nextTick + setTimeout)
+  init();
 
   /* initialize plots with default series data */
   function init() {
@@ -464,29 +478,51 @@ export function drawLabeler(plottingApp) {
   /* downsample context points using largest triangle three buckets algorithm
      and build quadtree for main brushing */
   function updateBrushData() {
-    // Build quadtree for fast brushing
-    plottingApp.quadtree = d3.quadtree()
-      .x(function (d) { return d.time; })
-      .y(function (d) { return d.val; })
-      .addAll(plottingApp.data);
+    // Safety check for empty data
+    if (!plottingApp.data || plottingApp.data.length === 0) {
+      console.warn('updateBrushData: No data available');
+      plottingApp.context_data = [];
+      return;
+    }
 
-    // Downsample context data for big datasets
-    var sampler = largestTriangleThreeBucket();
+    // Validate data has required properties
+    const validData = plottingApp.data.filter(d =>
+      d && d.time !== undefined && d.val !== undefined &&
+      !isNaN(d.x) && !isNaN(d.y)
+    );
 
-    // Configure the x / y value accessors
-    sampler.x(function (d) { return d.x; })
-      .y(function (d) { return d.y; });
+    if (validData.length === 0) {
+      console.warn('updateBrushData: No valid data points with x/y values');
+      plottingApp.context_data = plottingApp.data;
+      return;
+    }
 
-    // Configure the size of the buckets used to downsample the data.
-    // Have at most 1000 context points
-    var bucket_size = Math.max(Math.round(plottingApp.data.length / 1000), 1);
+    try {
+      // Build quadtree for fast brushing
+      plottingApp.quadtree = d3.quadtree()
+        .x(function (d) { return d.time; })
+        .y(function (d) { return d.val; })
+        .addAll(validData);
 
-    // bump bucket size if 2 (doesn't preserve outliers)
-    // bucket_size = (bucket_size == 2) ? bucket_size + 1 : bucket_size;
+      // Downsample context data for big datasets
+      var sampler = largestTriangleThreeBucket();
 
-    sampler.bucketSize(bucket_size);
+      // Configure the x / y value accessors
+      sampler.x(function (d) { return d.x; })
+        .y(function (d) { return d.y; });
 
-    plottingApp.context_data = sampler(plottingApp.data);
+      // Configure the size of the buckets used to downsample the data.
+      // Have at most 1000 context points
+      var bucket_size = Math.max(Math.round(validData.length / 1000), 1);
+
+      sampler.bucketSize(bucket_size);
+
+      plottingApp.context_data = sampler(validData);
+    } catch (e) {
+      console.error('updateBrushData sampling error:', e);
+      // Fallback: use original data without sampling
+      plottingApp.context_data = plottingApp.data;
+    }
   }
 
   function createInView(domain) {
@@ -646,13 +682,27 @@ export function drawLabeler(plottingApp) {
 
   /* format csv data with data structure */
   function type(d) {
-    d.actual_time = DateTime.fromISO(d.time, { setZone: true });
-    var d2 = d.time.toISO({ includeOffset: false });
-    d.time = DateTime.fromISO(d2);;
+    // Handle both ISO string and DateTime object inputs
+    var timeValue;
+    if (typeof d.time === 'string') {
+      // Input is ISO string from server API
+      timeValue = DateTime.fromISO(d.time, { setZone: true });
+    } else if (d.time && typeof d.time.toISO === 'function') {
+      // Input is already a DateTime object from local upload
+      timeValue = d.time;
+    } else {
+      // Fallback: try to parse as string
+      timeValue = DateTime.fromISO(String(d.time), { setZone: true });
+    }
+
+    d.actual_time = timeValue;
+    var d2 = timeValue.toISO({ includeOffset: false });
+    d.time = DateTime.fromISO(d2);
     d.val = +d.val;
     d.series = d.series;
     d.label = d.label;
-    d.x = +d.time;
+    // Use toMillis() for proper DateTime to number conversion
+    d.x = d.time.toMillis ? d.time.toMillis() : +d.time;
     d.y = d.val;
     return d;
   }
