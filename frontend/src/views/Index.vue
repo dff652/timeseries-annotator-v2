@@ -80,8 +80,9 @@
                   <div v-for="label in category.labels" :key="label.id" 
                        class="local-label-item" 
                        :class="{ active: isLocalLabelSelected(label.id) }" 
-                       :style="isLocalLabelSelected(label.id) ? { backgroundColor: getCategoryColor(catId) + '22', borderColor: getCategoryColor(catId) } : {}"
+                       :style="isLocalLabelSelected(label.id) ? { backgroundColor: getLabelColor(catId, label.id) + '22', borderColor: getLabelColor(catId, label.id) } : {}"
                        @click="toggleLocalLabel(label, catId)">
+                    <span class="label-color-dot" :style="{ backgroundColor: getLabelColor(catId, label.id) }"></span>
                     <span>{{ label.text }}</span>
                   </div>
                 </div>
@@ -119,24 +120,22 @@
 
           <!-- Instructions & Toolbar -->
           <div class="toolbar" v-if="isChartMode" id="instrSelect">
-            <div class="toolbar-section instr">
-              <strong>标注操作</strong><br>
-              <strong>点击</strong> 切换标签<br>
-              <strong>拖拽</strong> 框选批量标注<br>
-              <kbd>Shift</kbd> + 拖拽 取消标注
+            <div class="toolbar-row">
+              <div class="toolbar-section instr compact">
+                <span><strong>标注:</strong> 点击切换 | 拖拽框选 | <kbd>Shift</kbd>+拖拽取消</span>
+              </div>
+              <div class="toolbar-section instr compact">
+                <span><strong>导航:</strong> <kbd>←</kbd><kbd>→</kbd>平移 | <kbd>↑</kbd><kbd>↓</kbd>缩放</span>
+              </div>
+              <div class="toolbar-section actions-inline">
+                <button class="btn btn-warning btn-sm" @click="clearAllLabels">清除标注</button>
+              </div>
             </div>
-            <div class="toolbar-section instr">
-              <strong>导航</strong><br>
-              <kbd>←</kbd><kbd>→</kbd> 平移<br>
-              <kbd>↑</kbd><kbd>↓</kbd> 缩放
-            </div>
-            <div class="toolbar-section selectors" id="selectors">
-              <div>主序列: <select id="seriesSelect"></select></div>
-              <div>参考序列: <select id="referenceSelect"></select></div>
-            </div>
-            <div class="toolbar-section actions">
-              <button class="btn btn-warning btn-sm" @click="clearAllLabels">清除标注</button>
-              <button class="btn btn-success btn-sm" @click="exportAnnotations">导出</button>
+            <div class="toolbar-row">
+              <div class="toolbar-section selectors" id="selectors">
+                <span>主序列: <select id="seriesSelect"></select></span>
+                <span>参考序列: <select id="referenceSelect"></select></span>
+              </div>
             </div>
           </div>
         </div>
@@ -144,51 +143,79 @@
 
       <!-- Right Sidebar -->
       <aside class="sidebar right-sidebar" v-if="isChartMode">
-        <!-- 标注列表 -->
+        <!-- 当前标注 -->
         <div class="panel-section">
-          <div class="section-header">
-            <h3 class="section-title">📝 标注列表</h3>
-            <button class="btn btn-sm btn-primary" @click="downloadAnnotations" :disabled="annotations.length === 0">下载</button>
-          </div>
-          <div class="annotation-list">
-            <div v-for="(ann, idx) in annotations" :key="idx" class="annotation-item">
-              <div class="annotation-header">
-                <span class="annotation-range">{{ ann.startIndex }} - {{ ann.endIndex }}</span>
-                <button class="btn-delete" @click="deleteAnnotation(idx)">×</button>
-              </div>
-              <div class="annotation-labels">
-                <span v-for="label in ann.labels" :key="label.id" class="label-tag" :style="{ backgroundColor: label.color }">{{ label.text }}</span>
-              </div>
-            </div>
-            <p v-if="annotations.length === 0" class="empty-message">暂无标注</p>
-          </div>
-        </div>
-
-        <!-- 标注信息 -->
-        <div class="panel-section annotation-form">
-          <h3 class="section-title">标注信息</h3>
-          <div class="form-group">
-            <label>选区范围</label>
-            <div class="selection-display">{{ selectionRange }}</div>
-          </div>
+          <h3 class="section-title">📌 当前标注</h3>
+          
+          <!-- 已选标签 -->
           <div class="form-group">
             <label>已选标签</label>
-            <div class="selected-labels">
-              <span v-for="label in selectedLocalLabels" :key="label.id" class="label-tag" :style="{ backgroundColor: label.color }">{{ label.text }}</span>
-              <span v-if="selectedLocalLabels.length === 0" class="no-label">未选择</span>
+            <div class="selected-labels" v-if="currentAnnotation.label">
+              <span class="label-tag" :style="{ backgroundColor: currentAnnotation.label.color }">
+                {{ currentAnnotation.label.text }}
+              </span>
+              <button class="btn-icon-sm" @click="clearCurrentLabel" title="取消选择">×</button>
             </div>
+            <div v-else class="no-label">请从左侧选择标签</div>
           </div>
+          
+          <!-- 已框选数据段 -->
           <div class="form-group">
-            <label>输入问题</label>
-            <textarea v-model="inputPrompt" rows="2" placeholder="Supposing that..."></textarea>
+            <label>已框选数据段 ({{ currentAnnotation.segments.length }})</label>
+            <div class="segments-list" v-if="currentAnnotation.segments.length > 0">
+              <div v-for="(seg, idx) in currentAnnotation.segments" :key="idx" class="segment-item">
+                <span class="segment-range">{{ seg.start }} - {{ seg.end }}</span>
+                <span class="segment-count">({{ seg.count }}点)</span>
+                <button class="btn-icon-sm" @click="removeSegment(idx)">×</button>
+              </div>
+            </div>
+            <div v-else class="empty-message">请在图中框选数据</div>
+          </div>
+          
+          <!-- 问题和专家分析 -->
+          <div class="form-group">
+            <label>问题</label>
+            <textarea v-model="currentAnnotation.prompt" rows="2" placeholder="Supposing that..."></textarea>
           </div>
           <div class="form-group">
             <label>专家分析</label>
-            <textarea v-model="expertOutput" rows="2" placeholder="Yes, the..."></textarea>
+            <textarea v-model="currentAnnotation.expertOutput" rows="2" placeholder="Yes, the..."></textarea>
           </div>
+          
           <div class="form-actions">
-            <button class="btn btn-primary" @click="saveAnnotation" :disabled="!canSave">保存</button>
-            <button class="btn btn-success" @click="saveAndContinue" :disabled="!canSave">完成</button>
+            <button class="btn btn-primary" @click="saveCurrentAnnotation" :disabled="!canSaveAnnotation">
+              {{ editingAnnotationIndex !== null ? '更新标注' : '保存标注' }}
+            </button>
+            <button class="btn" @click="resetCurrentAnnotation">重置</button>
+          </div>
+        </div>
+
+        <!-- 标注列表 -->
+        <div class="panel-section">
+          <div class="section-header">
+            <h3 class="section-title">📋 标注列表 ({{ savedAnnotations.length }})</h3>
+            <button class="btn btn-sm btn-primary" @click="downloadAnnotations" :disabled="savedAnnotations.length === 0">下载</button>
+          </div>
+          <div class="annotation-list">
+            <div v-for="(ann, idx) in savedAnnotations" :key="ann.id" class="annotation-item" :class="{ 'editing': editingAnnotationIndex === idx }">
+              <div class="annotation-header">
+                <span class="label-tag" :style="{ backgroundColor: ann.label.color }">{{ ann.label.text }}</span>
+                <span class="segment-summary">({{ ann.segments.length }}段)</span>
+                <div class="annotation-actions">
+                  <button class="btn-icon-sm" @click="editAnnotation(idx)" title="编辑">✏️</button>
+                  <button class="btn-delete" @click="deleteAnnotation(idx)" title="删除">×</button>
+                </div>
+              </div>
+              <div class="annotation-segments">
+                <span v-for="(seg, sidx) in ann.segments" :key="sidx" class="segment-badge">
+                  {{ seg.start }}-{{ seg.end }}
+                </span>
+              </div>
+              <div class="annotation-text" v-if="ann.prompt">
+                <small>Q: {{ ann.prompt.substring(0, 50) }}{{ ann.prompt.length > 50 ? '...' : '' }}</small>
+              </div>
+            </div>
+            <p v-if="savedAnnotations.length === 0" class="empty-message">暂无标注</p>
           </div>
         </div>
       </aside>
@@ -242,11 +269,59 @@
       </div>
     </div>
     
+    <!-- Label Settings Modal -->
+    <div v-if="showLabelSettings" class="modal-overlay" @click.self="showLabelSettings = false">
+      <div class="modal-box modal-lg">
+        <div class="modal-header">
+          <h3>🏷️ 标签管理</h3>
+          <button class="close-btn" @click="showLabelSettings = false">&times;</button>
+        </div>
+        <div class="modal-body">
+          <!-- 标签页切换：整体属性 / 局部变化 -->
+          <div class="label-settings-tabs">
+            <button class="settings-tab" :class="{ active: labelSettingsTab === 'overall' }" @click="labelSettingsTab = 'overall'">
+              整体属性
+            </button>
+            <button class="settings-tab" :class="{ active: labelSettingsTab === 'local' }" @click="labelSettingsTab = 'local'">
+              局部变化
+            </button>
+          </div>
+          
+          <!-- 分类列表 -->
+          <div class="category-editor-list">
+            <div v-for="(cat, catId) in editableCategories" :key="catId" class="category-editor-card">
+              <div class="category-editor-header">
+                <input v-model="cat.name" class="input input-sm category-name-input" placeholder="分类名称">
+                <div class="category-actions">
+                  <input v-if="labelSettingsTab === 'local'" type="color" v-model="cat.color" class="color-picker" title="分类颜色">
+                  <button class="btn-icon-danger" @click="deleteCategory(catId)" title="删除分类">🗑️</button>
+                </div>
+              </div>
+              <div class="label-editor-list">
+                <div v-for="(label, idx) in cat.labels" :key="label.id" class="label-editor-item">
+                  <input v-model="label.text" class="input input-xs label-name-input" placeholder="标签名">
+                  <input v-if="labelSettingsTab === 'local'" type="color" v-model="label.color" class="color-picker-sm" title="标签颜色">
+                  <button class="btn-icon-sm" @click="deleteLabelFromCategory(catId, idx)" title="删除">×</button>
+                </div>
+                <button class="btn btn-xs btn-outline" @click="addLabelToCategory(catId)">+ 添加标签</button>
+              </div>
+            </div>
+            <button class="btn btn-primary btn-sm add-category-btn" @click="addCategory">+ 添加分类</button>
+          </div>
+        </div>
+        <div class="modal-footer">
+          <button class="btn" @click="showLabelSettings = false">取消</button>
+          <button class="btn btn-primary" @click="saveLabelsToServer">保存</button>
+        </div>
+      </div>
+    </div>
+    
     <!-- Hidden triggers for D3 -->
     <button id="updateHover" style="display:none" @click="updateHoverinfo"></button>
     <button id="triggerReplot" style="display:none" @click="triggerReplot"></button>
     <button id="triggerRecolor" style="display:none" @click="triggerRecolor"></button>
     <button id="clearSeries" style="display:none" @click="clearSeries"></button>
+    <button id="updateSelection" style="display:none" @click="updateSelectionRange"></button>
   </div>
 </template>
 
@@ -288,12 +363,15 @@ export default {
       // Hover info
       hoverinfo: { val: '', time: '', label: '' },
       
-      // Annotations
-      annotations: [],
-      selectionRange: '未选择 (0 - 0)',
-      currentSelection: { start: 0, end: 0 },
-      inputPrompt: '',
-      expertOutput: '',
+      // Annotations - New structure: one label to multiple segments
+      currentAnnotation: {
+        label: null,           // Currently selected local label
+        segments: [],          // Array of {start, end, count}
+        prompt: '',
+        expertOutput: ''
+      },
+      savedAnnotations: [],    // Array of completed annotations
+      selectionRange: '未选择',
       
       // UI state
       toast: { show: false, message: '', type: 'info' },
@@ -313,23 +391,31 @@ export default {
         'concept_drift': '#22c55e',
         'seasonal': '#f59e0b',
         'trend': '#8b5cf6',
+        'spike': '#ef4444',
+        'step': '#22c55e',
+        'drift': '#3b82f6',
+        'anomaly': '#a855f7',
         'default': '#6b7280'
-      }
+      },
+      
+      // Label settings modal state
+      labelSettingsTab: 'overall',
+      
+      // Editing state: index of annotation being edited, null if creating new
+      editingAnnotationIndex: null
     }
   },
   computed: {
     overallCategories() {
-      // API returns { categories: {...}, name: '...' }, access the categories sub-object
-      const attr = this.labels.overall_attribute || {};
-      return attr.categories || attr;  // Fallback to attr if no categories wrapper
+      // Return direct reference for display (read-only)
+      return this.labels.overall_attribute || {};
     },
     localCategories() {
-      // API returns { categories: {...}, name: '...' }, access the categories sub-object
-      const attr = this.labels.local_change || {};
-      return attr.categories || attr;  // Fallback to attr if no categories wrapper
+      // Return direct reference for display (read-only)
+      return this.labels.local_change || {};
     },
-    canSave() {
-      return this.currentSelection.start !== this.currentSelection.end || this.selectedLocalLabels.length > 0;
+    canSaveAnnotation() {
+      return this.currentAnnotation.label !== null && this.currentAnnotation.segments.length > 0;
     },
     // Filter files for CSV tab
     csvFiles() {
@@ -338,6 +424,26 @@ export default {
     // Filter files for JSON results
     jsonFiles() {
       return this.files.filter(f => f.name.toLowerCase().endsWith('.json') || f.has_annotations);
+    },
+    // Editable categories for label settings modal - return direct reference
+    editableCategories() {
+      if (this.labelSettingsTab === 'overall') {
+        return this.labels.overall_attribute || {};
+      }
+      return this.labels.local_change || {};
+    },
+    // Get all used colors to avoid duplicates
+    usedColors() {
+      const colors = new Set();
+      const localCats = this.labels.local_change || {};
+      Object.values(localCats).forEach(cat => {
+        if (cat.labels) {
+          cat.labels.forEach(label => {
+            if (label.color) colors.add(label.color);
+          });
+        }
+      });
+      return colors;
     }
   },
   watch: {
@@ -365,6 +471,8 @@ export default {
           Object.keys(this.labels.overall_attribute || {}).forEach(catId => {
             this.$set(this.selectedOverallLabels, catId, '');
           });
+          // Sync category colors from labels.json
+          this.updateCategoryColors();
         } else {
           console.error('Labels API error:', data.error);
         }
@@ -516,11 +624,8 @@ export default {
         refSelect.innerHTML += `<option value="${s}">${s}</option>`;
       });
       
-      if (seriesList.length === 1) {
-        document.getElementById('selectors').style.display = 'none';
-      } else {
-        document.getElementById('selectors').style.display = 'block';
-      }
+      // Always show selectors - even with single series
+      document.getElementById('selectors').style.display = 'flex';
     },
     
     getNextColor() {
@@ -531,38 +636,71 @@ export default {
     
     // Label Methods - Single select for local labels
     toggleLocalLabel(label, categoryId) {
-      // Single select: clicking same label removes it, clicking different replaces
-      const idx = this.selectedLocalLabels.findIndex(l => l.id === label.id);
-      if (idx > -1) {
+      // Get label color
+      const labelColor = this.getLabelColor(categoryId, label.id);
+      
+      // Check if clicking same label
+      if (this.currentAnnotation.label && this.currentAnnotation.label.id === label.id) {
         // Clicked same label - deselect
+        this.currentAnnotation.label = null;
         this.selectedLocalLabels = [];
+        if (plottingApp) {
+          plottingApp.selectedLabel = '';
+          plottingApp.labelColor = null;
+        }
       } else {
-        // Clicked different label - replace with single selection
-        // Use category color, not label's individual color
-        const categoryColor = this.getCategoryColor(categoryId);
-        this.selectedLocalLabels = [{
+        // Set new label
+        const labelObj = {
           id: label.id,
           text: label.text,
-          color: categoryColor,
+          color: labelColor,
           categoryId,
           categoryName: this.localCategories[categoryId]?.name
-        }];
+        };
+        this.currentAnnotation.label = labelObj;
+        this.selectedLocalLabels = [labelObj];  // Keep for backward compatibility
         
-        // Update D3 chart with this color
-        if (plottingApp && plottingApp.selectedLabel !== undefined) {
+        // Update D3 chart with this color for brush labeling
+        if (plottingApp) {
           plottingApp.selectedLabel = label.text;
-          plottingApp.labelColor = categoryColor;
+          plottingApp.labelColor = labelColor;
+          
+          // Update labelList
+          if (!plottingApp.labelList) plottingApp.labelList = [];
+          const existingIdx = plottingApp.labelList.findIndex(l => l.name === label.text);
+          if (existingIdx === -1) {
+            plottingApp.labelList.push({ name: label.text, color: labelColor });
+          } else {
+            plottingApp.labelList[existingIdx].color = labelColor;
+          }
         }
       }
     },
     
     isLocalLabelSelected(labelId) {
-      return this.selectedLocalLabels.some(l => l.id === labelId);
+      return this.currentAnnotation.label && this.currentAnnotation.label.id === labelId;
     },
     
     getCategoryColor(categoryId) {
-      // Return color for category - each major category gets one color
+      // Priority: 1. Color from labels.json category 2. categoryColors map 3. default
+      const localCat = this.labels.local_change?.[categoryId];
+      if (localCat && localCat.color) {
+        return localCat.color;
+      }
       return this.categoryColors[categoryId] || this.categoryColors['default'];
+    },
+    
+    // Get label-specific color (for individual labels within a category)
+    getLabelColor(categoryId, labelId) {
+      const localCat = this.labels.local_change?.[categoryId];
+      if (localCat && localCat.labels) {
+        const label = localCat.labels.find(l => l.id === labelId);
+        if (label && label.color) {
+          return label.color;
+        }
+      }
+      // Fallback to category color
+      return this.getCategoryColor(categoryId);
     },
     
     addLabel() {
@@ -587,38 +725,134 @@ export default {
       }
     },
     
-    // Annotation Methods
-    saveAnnotation() {
-      if (!this.canSave) return;
-      this.annotations.push({
-        startIndex: this.currentSelection.start,
-        endIndex: this.currentSelection.end,
-        labels: [...this.selectedLocalLabels],
-        input: this.inputPrompt,
-        output: this.expertOutput,
-        overallLabels: { ...this.selectedOverallLabels }
-      });
-      this.showToast('标注已保存', 'success');
+    // Annotation Methods - New workflow
+    saveCurrentAnnotation() {
+      if (!this.canSaveAnnotation) return;
+      
+      const annotation = {
+        id: this.editingAnnotationIndex !== null 
+          ? this.savedAnnotations[this.editingAnnotationIndex].id 
+          : 'ann_' + Date.now(),
+        label: { ...this.currentAnnotation.label },
+        segments: [...this.currentAnnotation.segments],
+        prompt: this.currentAnnotation.prompt,
+        expertOutput: this.currentAnnotation.expertOutput,
+        createdAt: this.editingAnnotationIndex !== null 
+          ? this.savedAnnotations[this.editingAnnotationIndex].createdAt 
+          : new Date().toISOString(),
+        updatedAt: new Date().toISOString()
+      };
+      
+      if (this.editingAnnotationIndex !== null) {
+        // Update existing annotation
+        this.$set(this.savedAnnotations, this.editingAnnotationIndex, annotation);
+        this.showToast('标注已更新', 'success');
+      } else {
+        // Add new annotation
+        this.savedAnnotations.push(annotation);
+        this.showToast('标注已保存', 'success');
+      }
+      this.resetCurrentAnnotation();
     },
     
-    saveAndContinue() {
-      this.saveAnnotation();
+    resetCurrentAnnotation() {
+      this.currentAnnotation = {
+        label: null,
+        segments: [],
+        prompt: '',
+        expertOutput: ''
+      };
       this.selectedLocalLabels = [];
-      this.inputPrompt = '';
-      this.expertOutput = '';
-      this.currentSelection = { start: 0, end: 0 };
-      this.selectionRange = '未选择 (0 - 0)';
+      this.selectionRange = '未选择';
+      this.editingAnnotationIndex = null;  // Reset editing state
+      if (plottingApp) {
+        plottingApp.selectedLabel = '';
+        plottingApp.labelColor = null;
+      }
+    },
+    
+    // Clear current label and also clear chart points with this label's color
+    clearCurrentLabel() {
+      const currentLabelText = this.currentAnnotation.label?.text;
+      
+      // Clear from plottingApp
+      if (plottingApp) {
+        // If we have a label, clear all points with this label from chart
+        if (currentLabelText && plottingApp.allData) {
+          plottingApp.allData.forEach(d => {
+            if (d.label === currentLabelText) {
+              d.label = '';
+            }
+          });
+          // Refresh chart display
+          if (typeof plottingApp.main !== 'undefined' && plottingApp.main) {
+            plottingApp.main.selectAll('.point').attr('style', function(d) {
+              return d.label ? `fill: ${plottingApp.labelColor || '#7E4C64'}; stroke: ${plottingApp.labelColor || '#7E4C64'}; opacity: 0.75;` : 'fill: black; stroke: none; opacity: 1;';
+            });
+          }
+        }
+        plottingApp.selectedLabel = '';
+        plottingApp.labelColor = null;
+      }
+      
+      // Clear current annotation state
+      this.currentAnnotation.label = null;
+      this.currentAnnotation.segments = [];
+      this.selectedLocalLabels = [];
+      this.showToast('已取消选择标签并清除相关数据点', 'info');
+    },
+    
+    removeSegment(idx) {
+      this.currentAnnotation.segments.splice(idx, 1);
     },
     
     deleteAnnotation(idx) {
-      this.annotations.splice(idx, 1);
+      this.savedAnnotations.splice(idx, 1);
+      this.showToast('标注已删除', 'info');
+    },
+    
+    // Edit an existing annotation - load it into current editing area
+    editAnnotation(idx) {
+      const ann = this.savedAnnotations[idx];
+      if (!ann) return;
+      
+      // Load annotation into current editing state
+      this.currentAnnotation = {
+        label: { ...ann.label },
+        segments: [...ann.segments],
+        prompt: ann.prompt || '',
+        expertOutput: ann.expertOutput || ''
+      };
+      this.selectedLocalLabels = [ann.label];
+      
+      // Update plottingApp
+      if (plottingApp) {
+        plottingApp.selectedLabel = ann.label.text;
+        plottingApp.labelColor = ann.label.color;
+      }
+      
+      // Store editing index for update
+      this.editingAnnotationIndex = idx;
+      
+      this.showToast('已加载标注进行编辑', 'info');
     },
     
     downloadAnnotations() {
       const exportData = {
-        annotations: this.annotations,
-        export_time: new Date().toISOString(),
-        filename: this.selectedFileName
+        filename: this.selectedFileName,
+        overall_attribute: this.selectedOverallLabels,
+        annotations: this.savedAnnotations.map(ann => ({
+          label: {
+            id: ann.label.id,
+            text: ann.label.text,
+            categoryId: ann.label.categoryId,
+            color: ann.label.color
+          },
+          segments: ann.segments,
+          prompt: ann.prompt,
+          expert_output: ann.expertOutput
+        })),
+        export_time: new Date().toISOString()
       };
       const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob);
@@ -629,17 +863,32 @@ export default {
       URL.revokeObjectURL(url);
     },
     
-    exportAnnotations() {
-      this.downloadAnnotations();
-    },
-    
     clearAllLabels() {
-      if (confirm('确定清除所有标注吗？')) {
-        if (plottingApp.allData) {
-          plottingApp.allData.forEach(d => d.label = '');
-        }
-        this.triggerRecolor();
+      // Clear all point labels from chart data - does NOT clear savedAnnotations!
+      if (plottingApp && plottingApp.allData) {
+        plottingApp.allData.forEach(d => d.label = '');
       }
+      // Refresh chart display
+      if (plottingApp && plottingApp.main) {
+        plottingApp.main.selectAll('.point').attr('style', 'fill: black; stroke: none; opacity: 1;');
+      }
+      if (plottingApp && plottingApp.context) {
+        plottingApp.context.selectAll('.point').attr('style', 'fill: black; stroke: none; opacity: 1;');
+      }
+      // Also clear current selection state (linked behavior)
+      this.currentAnnotation = {
+        label: null,
+        segments: [],
+        prompt: '',
+        expertOutput: ''
+      };
+      this.selectedLocalLabels = [];
+      this.editingAnnotationIndex = null;
+      if (plottingApp) {
+        plottingApp.selectedLabel = '';
+        plottingApp.labelColor = null;
+      }
+      this.showToast('已清除图上所有标注点', 'success');
     },
     
     // File Upload
@@ -735,10 +984,154 @@ export default {
       }
     },
     
+    updateSelectionRange() {
+      // Called by D3 when brush selection changes - add segment to current annotation
+      if (plottingApp.selection) {
+        const segment = {
+          start: plottingApp.selection.start,
+          end: plottingApp.selection.end,
+          count: plottingApp.selection.count || (plottingApp.selection.end - plottingApp.selection.start + 1)
+        };
+        
+        // Add to segments array if we have a label selected
+        if (this.currentAnnotation.label) {
+          this.currentAnnotation.segments.push(segment);
+          this.selectionRange = `已添加 ${this.currentAnnotation.segments.length} 段`;
+          this.showToast(`已添加数据段: ${segment.start}-${segment.end}`, 'success');
+        } else {
+          this.selectionRange = `${segment.start} - ${segment.end} (${segment.count}点) - 请先选择标签`;
+          this.showToast('请先选择一个标签', 'warning');
+        }
+      }
+    },
+    
     // Utilities
     showToast(message, type = 'info') {
       this.toast = { show: true, message, type };
       setTimeout(() => { this.toast.show = false; }, 3000);
+    },
+    
+    // Label Management Methods
+    addCategory() {
+      const newId = 'cat_' + Date.now();
+      // Get target object reference directly
+      if (!this.labels.overall_attribute) this.$set(this.labels, 'overall_attribute', {});
+      if (!this.labels.local_change) this.$set(this.labels, 'local_change', {});
+      
+      const target = this.labelSettingsTab === 'overall' 
+        ? this.labels.overall_attribute 
+        : this.labels.local_change;
+      
+      const newCategory = {
+        name: '新分类',
+        labels: []
+      };
+      
+      // Add color for local categories
+      if (this.labelSettingsTab === 'local') {
+        newCategory.color = '#6b7280';
+      }
+      
+      this.$set(target, newId, newCategory);
+      this.showToast('分类已添加', 'success');
+    },
+    
+    deleteCategory(catId) {
+      if (!confirm(`确定删除分类 "${this.editableCategories[catId]?.name}" 吗？`)) {
+        return;
+      }
+      const target = this.labelSettingsTab === 'overall' 
+        ? this.labels.overall_attribute 
+        : this.labels.local_change;
+      this.$delete(target, catId);
+      this.showToast('分类已删除', 'success');
+    },
+    
+    addLabelToCategory(catId) {
+      const target = this.labelSettingsTab === 'overall' 
+        ? this.labels.overall_attribute 
+        : this.labels.local_change;
+      const cat = target[catId];
+      if (!cat) return;
+      
+      if (!cat.labels) {
+        this.$set(cat, 'labels', []);
+      }
+      const newLabel = {
+        id: 'label_' + Date.now(),
+        text: '新标签'
+      };
+      
+      // Add unique color for local labels
+      if (this.labelSettingsTab === 'local') {
+        newLabel.color = this.generateUniqueColor();
+      }
+      
+      cat.labels.push(newLabel);
+      this.showToast('标签已添加', 'success');
+    },
+    
+    deleteLabelFromCategory(catId, idx) {
+      const target = this.labelSettingsTab === 'overall' 
+        ? this.labels.overall_attribute 
+        : this.labels.local_change;
+      if (target[catId] && target[catId].labels) {
+        target[catId].labels.splice(idx, 1);
+        this.showToast('标签已删除', 'success');
+      }
+    },
+    
+    // Generate a unique color that's not already used
+    generateUniqueColor() {
+      const palette = [
+        '#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', 
+        '#22c55e', '#10b981', '#14b8a6', '#06b6d4', '#0ea5e9',
+        '#3b82f6', '#6366f1', '#8b5cf6', '#a855f7', '#d946ef',
+        '#ec4899', '#f43f5e', '#78716c', '#64748b', '#0f172a'
+      ];
+      const used = this.usedColors;
+      
+      // Find first unused color
+      for (const color of palette) {
+        if (!used.has(color)) {
+          return color;
+        }
+      }
+      // If all used, generate random
+      return '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
+    },
+    
+    async saveLabelsToServer() {
+      try {
+        const res = await fetch(`${API_BASE}/labels`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.labels)
+        });
+        const data = await res.json();
+        if (data.success) {
+          this.showToast('标签配置保存成功', 'success');
+          this.showLabelSettings = false;
+          // Update categoryColors from saved labels
+          this.updateCategoryColors();
+        } else {
+          this.showToast('保存失败: ' + data.error, 'error');
+        }
+      } catch (e) {
+        console.error('Save labels error:', e);
+        this.showToast('保存失败: ' + e.message, 'error');
+      }
+    },
+    
+    updateCategoryColors() {
+      // Sync categoryColors from local_change labels
+      const localCats = this.labels.local_change || {};
+      Object.keys(localCats).forEach(catId => {
+        const cat = localCats[catId];
+        if (cat.color) {
+          this.$set(this.categoryColors, catId, cat.color);
+        }
+      });
     }
   }
 };
@@ -820,9 +1213,10 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .label-options { display: flex; flex-wrap: wrap; gap: 6px; }
 .label-option { display: flex; align-items: center; gap: 4px; font-size: 0.8125rem; cursor: pointer; }
 .local-label-options { display: flex; flex-direction: column; gap: 4px; }
-.local-label-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8125rem; }
+.local-label-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8125rem; border: 2px solid transparent; transition: all 0.15s; }
 .local-label-item:hover { background: #f0f0f0; }
 .local-label-item.active { background: #f3e8ed; }
+.label-color-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .label-color { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
 .label-select-group { display: flex; align-items: center; gap: 4px; }
 .label-select { flex: 1; min-width: 0; }
@@ -836,11 +1230,14 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .chart-area { flex: 1; }
 
 /* Toolbar (instructions + actions) */
-.toolbar { display: grid; grid-template-columns: 1fr 1fr 1fr auto; gap: 16px; margin-top: 16px; font-size: 0.8125rem; align-items: start; }
-.toolbar-section { padding: 12px; background: #f8f8f8; border-radius: 6px; }
-.toolbar-section.instr { line-height: 1.6; }
+.toolbar { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; font-size: 0.8125rem; }
+.toolbar-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
+.toolbar-section { padding: 8px 12px; background: #f8f8f8; border-radius: 6px; }
+.toolbar-section.instr { line-height: 1.4; }
+.toolbar-section.instr.compact { padding: 6px 10px; }
+.toolbar-section.selectors { display: flex; gap: 16px; }
 .toolbar-section.selectors select { margin-left: 8px; }
-.toolbar-section.actions { display: flex; gap: 8px; flex-direction: column; }
+.toolbar-section.actions-inline { display: flex; gap: 8px; margin-left: auto; }
 
 /* File Tabs */
 .file-tabs { display: flex; gap: 0; margin-bottom: 8px; border-bottom: 1px solid #eee; }
@@ -864,13 +1261,18 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .hover-card { position: absolute; right: 20px; top: 10px; background: white; border: 1px solid #ddd; border-radius: 6px; padding: 10px; font-size: 0.8125rem; box-shadow: 0 2px 8px rgba(0,0,0,0.1); }
 
 /* Annotations */
-.annotation-list { max-height: 200px; overflow-y: auto; margin-bottom: 16px; }
-.annotation-item { padding: 10px; border: 1px solid #eee; border-radius: 6px; margin-bottom: 8px; }
-.annotation-header { display: flex; justify-content: space-between; align-items: center; }
-.annotation-range { font-weight: 600; color: #7E4C64; padding-left: 8px; border-left: 3px solid #7E4C64; }
-.annotation-labels { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; }
+.annotation-list { max-height: 250px; overflow-y: auto; margin-bottom: 16px; }
+.annotation-item { padding: 10px; border: 1px solid #eee; border-radius: 6px; margin-bottom: 8px; background: #fafafa; transition: all 0.2s; }
+.annotation-item:hover { border-color: #ddd; background: #f5f5f5; }
+.annotation-item.editing { border-color: #7E4C64; background: #f8f4f6; box-shadow: 0 0 0 2px rgba(126,76,100,0.1); }
+.annotation-header { display: flex; align-items: center; gap: 8px; margin-bottom: 6px; }
+.annotation-actions { display: flex; gap: 4px; margin-left: auto; }
+.annotation-segments { display: flex; flex-wrap: wrap; gap: 4px; margin-bottom: 4px; }
+.annotation-text { color: #666; font-size: 0.75rem; line-height: 1.3; }
+.segment-summary { font-size: 0.75rem; color: #888; }
+.segment-badge { font-size: 0.7rem; color: #666; padding: 2px 6px; border-radius: 4px; background: #e5e7eb; }
 .label-tag { font-size: 0.7rem; color: white; padding: 2px 6px; border-radius: 4px; }
-.selected-labels { display: flex; flex-wrap: wrap; gap: 4px; min-height: 28px; padding: 6px 8px; border: 1px solid #eee; border-radius: 6px; }
+.selected-labels { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 28px; padding: 6px 8px; border: 1px solid #eee; border-radius: 6px; }
 .no-label { color: #aaa; font-size: 0.8125rem; }
 .annotation-form { border-top: 1px solid #eee; padding-top: 16px; }
 .form-group { margin-bottom: 12px; }
@@ -878,6 +1280,12 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .selection-display { padding: 8px; background: #f8f8f8; border-radius: 6px; font-family: monospace; font-size: 0.875rem; }
 .form-actions { display: flex; gap: 8px; }
 .form-actions .btn { flex: 1; }
+
+/* Segments List */
+.segments-list { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: #f8f8f8; border-radius: 6px; max-height: 150px; overflow-y: auto; }
+.segment-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: white; border-radius: 4px; font-size: 0.8125rem; }
+.segment-range { font-family: monospace; color: #7E4C64; font-weight: 500; }
+.segment-count { color: #888; font-size: 0.75rem; }
 
 /* Toast */
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 12px 24px; background: #333; color: white; border-radius: 8px; z-index: 9999; }
@@ -901,4 +1309,33 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .dir-item.has-data { background: #f0fff4; }
 .data-badge { background: #22c55e; color: white; padding: 2px 8px; border-radius: 10px; font-size: 0.7rem; }
 .empty-message { text-align: center; color: #888; padding: 12px; font-size: 0.875rem; }
+
+/* Label Settings Modal */
+.modal-lg { max-width: 700px; }
+.label-settings-tabs { display: flex; gap: 0; margin-bottom: 16px; border-bottom: 2px solid #eee; }
+.settings-tab { flex: 1; padding: 10px 16px; background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 0.875rem; font-weight: 500; color: #666; transition: all 0.2s; margin-bottom: -2px; }
+.settings-tab:hover { color: #7E4C64; background: #f8f4f6; }
+.settings-tab.active { color: #7E4C64; border-bottom-color: #7E4C64; font-weight: 600; }
+
+.category-editor-list { display: flex; flex-direction: column; gap: 12px; }
+.category-editor-card { border: 1px solid #e0e0e0; border-radius: 8px; padding: 12px; background: #fafafa; }
+.category-editor-header { display: flex; gap: 8px; align-items: center; margin-bottom: 10px; }
+.category-name-input { flex: 1; font-weight: 600; }
+.category-actions { display: flex; gap: 6px; align-items: center; }
+
+.label-editor-list { display: flex; flex-direction: column; gap: 6px; padding-left: 12px; border-left: 3px solid #e0e0e0; }
+.label-editor-item { display: flex; gap: 6px; align-items: center; }
+.label-name-input { flex: 1; }
+
+.color-picker { width: 32px; height: 32px; padding: 0; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; }
+.color-picker-sm { width: 24px; height: 24px; padding: 0; border: 1px solid #ddd; border-radius: 4px; cursor: pointer; }
+
+.btn-icon-danger { background: none; border: none; cursor: pointer; font-size: 1rem; padding: 4px; }
+.btn-icon-danger:hover { opacity: 0.7; }
+.btn-outline { background: transparent; border: 1px dashed #ccc; color: #666; }
+.btn-outline:hover { border-color: #7E4C64; color: #7E4C64; }
+.btn-xs { padding: 4px 8px; font-size: 0.75rem; }
+.input-xs { padding: 4px 8px; font-size: 0.8125rem; }
+
+.add-category-btn { margin-top: 8px; }
 </style>

@@ -29,7 +29,8 @@ d3.selection.prototype.last = function () {
 export function drawLabeler(plottingApp) {
   //margins
   plottingApp.main_margin = { top: 10, right: 120, bottom: 100, left: 90 },
-    plottingApp.context_margin = { top: 430, right: 140, bottom: 20, left: 90 },
+    // Increased bottom margin to prevent accidental tick selection when dragging thumbnail slider
+    plottingApp.context_margin = { top: 430, right: 140, bottom: 30, left: 90 },
     // Get width with minimum fallback
     plottingApp.maindiv_width = Math.max($("#maindiv").width() || 800, 600),
     plottingApp.width = plottingApp.maindiv_width - plottingApp.main_margin.left - plottingApp.main_margin.right,
@@ -545,6 +546,36 @@ export function drawLabeler(plottingApp) {
       ymax = plottingApp.main_yscale.invert(extent[0][1]),
       ymin = plottingApp.main_yscale.invert(extent[1][1]);
 
+    // Find selected points and calculate index range
+    var selectedPoints = plottingApp.data.filter(function (d) {
+      return d.time >= xmin && d.time <= xmax && d.val >= ymin && d.val <= ymax;
+    });
+
+    if (selectedPoints.length > 0) {
+      // Find min and max indices
+      var indices = selectedPoints.map(function (d) {
+        return plottingApp.data.indexOf(d);
+      }).filter(function (idx) { return idx >= 0; });
+
+      if (indices.length > 0) {
+        var startIdx = Math.min.apply(null, indices);
+        var endIdx = Math.max.apply(null, indices);
+
+        // Store selection in plottingApp for Vue to access
+        plottingApp.selection = {
+          start: startIdx,
+          end: endIdx,
+          count: selectedPoints.length
+        };
+
+        // Trigger Vue update via hidden button
+        var updateBtn = document.getElementById('updateSelection');
+        if (updateBtn) {
+          updateBtn.click();
+        }
+      }
+    }
+
     search(plottingApp.quadtree, xmin, ymin, xmax, ymax);
     updateSelection();
     plottingApp.plot.main_brush.call(plottingApp.main_brush.move, null);
@@ -822,7 +853,26 @@ export function drawLabeler(plottingApp) {
   /* return the css style string for point based on label->color mapping */
   function getPointStyle(d) {
     if (isSelected(d)) {
-      var color = plottingApp.labelList.find(l => l.name == d.label).color;
+      var color = null;
+
+      // Priority 1: If this label matches the currently selected label, use labelColor
+      if (plottingApp.labelColor && d.label === plottingApp.selectedLabel) {
+        color = plottingApp.labelColor;
+      }
+
+      // Priority 2: Look up in labelList
+      if (!color && plottingApp.labelList) {
+        var labelEntry = plottingApp.labelList.find(l => l.name === d.label);
+        if (labelEntry && labelEntry.color) {
+          color = labelEntry.color;
+        }
+      }
+
+      // Priority 3: Default color
+      if (!color) {
+        color = '#7E4C64';  // Default theme color
+      }
+
       return "fill: " + color + "; stroke: " + color + "; opacity: 0.75;"
     } else {
       return "fill: black; stroke: none; opacity: 1;"
