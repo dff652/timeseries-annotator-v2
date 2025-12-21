@@ -2,145 +2,145 @@ import * as d3 from "d3"
 import { largestTriangleThreeBucket } from "d3fc-sample";
 const { DateTime } = require("luxon");
 
-d3.selection.prototype.moveToFront = function() {
-  return this.each(function(){
+d3.selection.prototype.moveToFront = function () {
+  return this.each(function () {
     this.parentNode.appendChild(this);
   });
 };
 
-d3.selection.prototype.moveToBack = function() {  
-  return this.each(function() { 
-      var firstChild = this.parentNode.firstChild; 
-      if (firstChild) {
-          this.parentNode.insertBefore(this, firstChild); 
-      } 
+d3.selection.prototype.moveToBack = function () {
+  return this.each(function () {
+    var firstChild = this.parentNode.firstChild;
+    if (firstChild) {
+      this.parentNode.insertBefore(this, firstChild);
+    }
   });
 };
 
-d3.selection.prototype.first = function() {  
-  return d3.select(this.nodes()[0]);  
+d3.selection.prototype.first = function () {
+  return d3.select(this.nodes()[0]);
 };
 
-d3.selection.prototype.last = function() {
+d3.selection.prototype.last = function () {
   return d3.select(this.nodes()[this.size() - 1]);
 };
 
 export function drawLabeler(plottingApp) {
   //margins
-  plottingApp.main_margin = {top: 10, right: 120, bottom: 100, left: 90},
-  plottingApp.context_margin = {top: 430, right: 140, bottom: 20, left: 90},
-  plottingApp.maindiv_width = $("#maindiv").width(),
-  plottingApp.width = plottingApp.maindiv_width - plottingApp.main_margin.left - plottingApp.main_margin.right,
-  plottingApp.main_height = 500 - plottingApp.main_margin.top - plottingApp.main_margin.bottom,
-  plottingApp.context_height = 500 - plottingApp.context_margin.top - plottingApp.context_margin.bottom,
-  plottingApp.label_margin = {small: 10, large: 20};
+  plottingApp.main_margin = { top: 10, right: 120, bottom: 100, left: 90 },
+    plottingApp.context_margin = { top: 430, right: 140, bottom: 20, left: 90 },
+    plottingApp.maindiv_width = $("#maindiv").width(),
+    plottingApp.width = plottingApp.maindiv_width - plottingApp.main_margin.left - plottingApp.main_margin.right,
+    plottingApp.main_height = 500 - plottingApp.main_margin.top - plottingApp.main_margin.bottom,
+    plottingApp.context_height = 500 - plottingApp.context_margin.top - plottingApp.context_margin.bottom,
+    plottingApp.label_margin = { small: 10, large: 20 };
 
   //scales
   plottingApp.main_xscale = d3.scaleTime().range([0, plottingApp.width]),
-  plottingApp.context_xscale = d3.scaleTime().range([0, plottingApp.width]),
-  plottingApp.main_yscale = d3.scaleLinear().range([plottingApp.main_height, 0]),
-  plottingApp.secondary_yscale = d3.scaleLinear().range([plottingApp.main_height, 0]),
-  plottingApp.context_yscale = d3.scaleLinear().range([plottingApp.context_height, 0]);
+    plottingApp.context_xscale = d3.scaleTime().range([0, plottingApp.width]),
+    plottingApp.main_yscale = d3.scaleLinear().range([plottingApp.main_height, 0]),
+    plottingApp.secondary_yscale = d3.scaleLinear().range([plottingApp.main_height, 0]),
+    plottingApp.context_yscale = d3.scaleLinear().range([plottingApp.context_height, 0]);
 
   //axes
   //can adjust multiscale time ticks: http://bl.ocks.org/mbostock/4149176
   plottingApp.main_xaxis = d3.axisBottom(plottingApp.main_xscale),
-  plottingApp.context_xaxis = d3.axisBottom(plottingApp.context_xscale),
-  plottingApp.y_axis = d3.axisLeft(plottingApp.main_yscale),
-  plottingApp.ref_axis = d3.axisRight(plottingApp.secondary_yscale);
+    plottingApp.context_xaxis = d3.axisBottom(plottingApp.context_xscale),
+    plottingApp.y_axis = d3.axisLeft(plottingApp.main_yscale),
+    plottingApp.ref_axis = d3.axisRight(plottingApp.secondary_yscale);
 
   var viewBox_width = plottingApp.width + plottingApp.main_margin.left + plottingApp.main_margin.right,
-  viewBox_height = plottingApp.main_height + plottingApp.main_margin.top + plottingApp.main_margin.bottom;
+    viewBox_height = plottingApp.main_height + plottingApp.main_margin.top + plottingApp.main_margin.bottom;
 
   //plotting areas
   plottingApp.svg = d3.select("#maindiv").append("svg")
-  .classed("container-fluid", true)
-  .classed("mainChart", true)
-  .attr("id", "mainChart")
-  .attr("width", viewBox_width)
-  .attr("height", viewBox_height + 50)
-  .attr("viewBox", "0 0 " + viewBox_width + " " + viewBox_height)
-  .attr("perserveAspectRatio", "xMinYMid meet");
+    .classed("container-fluid", true)
+    .classed("mainChart", true)
+    .attr("id", "mainChart")
+    .attr("width", viewBox_width)
+    .attr("height", viewBox_height + 50)
+    .attr("viewBox", "0 0 " + viewBox_width + " " + viewBox_height)
+    .attr("perserveAspectRatio", "xMinYMid meet");
 
   d3.select("#maindiv")
-      .insert("text", "#mainChart")
-        .attr("id", "chartTitle")
-        .attr("class", "chartText")
-        .attr("x", (plottingApp.width / 2))             
-        .attr("y", 0)
-        .style("padding-left", "3.57%")
-        .style("font-size", "20px")
-        // .text("Filename: " + plottingApp.filename)
-        .attr("viewBox", "0 0 " + viewBox_width + " " + viewBox_height)
-        .attr("perserveAspectRatio", "xMinYMid meet");
+    .insert("text", "#mainChart")
+    .attr("id", "chartTitle")
+    .attr("class", "chartText")
+    .attr("x", (plottingApp.width / 2))
+    .attr("y", 0)
+    .style("padding-left", "3.57%")
+    .style("font-size", "20px")
+    // .text("Filename: " + plottingApp.filename)
+    .attr("viewBox", "0 0 " + viewBox_width + " " + viewBox_height)
+    .attr("perserveAspectRatio", "xMinYMid meet");
 
   // set instrSelect top margin
   $("#instrSelect").css("margin-top", viewBox_height + 50);
 
   plottingApp.svg.append("text")
-  .text("Filename: " + plottingApp.filename)
-  .attr("class", "chartText")
-  .attr("transform", "translate(" + plottingApp.main_margin.left + "," + (-plottingApp.main_margin.top) + ")");
+    .text("Filename: " + plottingApp.filename)
+    .attr("class", "chartText")
+    .attr("transform", "translate(" + plottingApp.main_margin.left + "," + (-plottingApp.main_margin.top) + ")");
 
   // create clipPath for svg elements (prevents svg elements outside of main window)
   plottingApp.svg.append("defs").append("clipPath")
-  .attr("id", "clip")
-  .append("rect")
-  .attr("width", plottingApp.width)
-  .attr("height", plottingApp.main_height);
+    .attr("id", "clip")
+    .append("rect")
+    .attr("width", plottingApp.width)
+    .attr("height", plottingApp.main_height);
 
   //main window
   plottingApp.main = plottingApp.svg.append("g")
-  .attr("class", "main")
-  .attr("transform", "translate(" + plottingApp.main_margin.left + "," + plottingApp.main_margin.top + ")");
+    .attr("class", "main")
+    .attr("transform", "translate(" + plottingApp.main_margin.left + "," + plottingApp.main_margin.top + ")");
 
   // smaller context window
   plottingApp.context = plottingApp.svg.append("g")
-  .attr("class", "context")
-  .attr("transform", "translate(" + plottingApp.context_margin.left + "," + plottingApp.context_margin.top + ")");
+    .attr("class", "context")
+    .attr("transform", "translate(" + plottingApp.context_margin.left + "," + plottingApp.context_margin.top + ")");
 
   // d3 brushes
   plottingApp.main_brush = d3.brush()
-  .extent([[0,0], [plottingApp.width, plottingApp.main_height]])
-  .on("end", brushedMain);
+    .extent([[0, 0], [plottingApp.width, plottingApp.main_height]])
+    .on("end", brushedMain);
 
   // disable default d3 brush key modifiers
   plottingApp.main_brush.keyModifiers(false)
 
   plottingApp.context_brush = d3.brushX()
-  .extent([[0,0],[plottingApp.width, plottingApp.context_height]])
-  .on("end", brushedContext)
-  .on("brush", limitContext);
+    .extent([[0, 0], [plottingApp.width, plottingApp.context_height]])
+    .on("end", brushedContext)
+    .on("brush", limitContext);
 
   // d3 lines
   plottingApp.main_line = d3.line()
-  .curve(d3.curveLinear)
-  .x(function(d) { return plottingApp.main_xscale(d.time); })
-  .y(function(d) { return plottingApp.main_yscale(d.val); });
+    .curve(d3.curveLinear)
+    .x(function (d) { return plottingApp.main_xscale(d.time); })
+    .y(function (d) { return plottingApp.main_yscale(d.val); });
 
   plottingApp.secondary_line = d3.line()
-  .curve(d3.curveLinear)
-  .x(function(d) { return plottingApp.main_xscale(d.time); })
-  .y(function(d) { return plottingApp.secondary_yscale(d.val); });
+    .curve(d3.curveLinear)
+    .x(function (d) { return plottingApp.main_xscale(d.time); })
+    .y(function (d) { return plottingApp.secondary_yscale(d.val); });
 
   plottingApp.context_line = d3.line()
-  .curve(d3.curveLinear)
-  .x(function(d) { return plottingApp.context_xscale(d.time); })
-  .y(function(d) { return plottingApp.context_yscale(d.val); });
+    .curve(d3.curveLinear)
+    .x(function (d) { return plottingApp.context_xscale(d.time); })
+    .y(function (d) { return plottingApp.context_yscale(d.val); });
 
   // load data format and brushes
   plottingApp.shiftKey = false,
-  plottingApp.brushSelector = "Invert",
-  plottingApp.selectedSeries = $("#seriesSelect option:selected").val(),
-  plottingApp.refSeries = $("#referenceSelect option:selected").val();
+    plottingApp.brushSelector = "Invert",
+    plottingApp.selectedSeries = $("#seriesSelect option:selected").val(),
+    plottingApp.refSeries = $("#referenceSelect option:selected").val();
   // plot namespace (for svg selections associated with d3 objects)
   plottingApp.plot = {};
   // axis bounds & hoverinfo dict
   plottingApp.axisBounds = {},
-  plottingApp.hoverinfo = {};
+    plottingApp.hoverinfo = {};
 
   $(function () {
-   init();
+    init();
   });
 
   /* initialize plots with default series data */
@@ -152,8 +152,8 @@ export function drawLabeler(plottingApp) {
     var defaultExtent = getDefaultExtent();
     // set scales based on loaded data, default focus
     plottingApp.context_xscale.domain(padExtent(d3.extent(
-      plottingApp.allData.map(function(d) { return d.time; })))); // xaxis set according to allData
-    
+      plottingApp.allData.map(function (d) { return d.time; })))); // xaxis set according to allData
+
     defaultExtent[0] = plottingApp.context_xscale.domain()[0];
     plottingApp.main_xscale.domain(defaultExtent);
 
@@ -174,9 +174,9 @@ export function drawLabeler(plottingApp) {
   function initPlot(defaultExtent) {
     // create context and main x axes
     plottingApp.main.append("g")
-    .attr("class", "x axis")
-    .attr("transform", "translate(0," + plottingApp.main_height + ")")
-    .call(plottingApp.main_xaxis);
+      .attr("class", "x axis")
+      .attr("transform", "translate(0," + plottingApp.main_height + ")")
+      .call(plottingApp.main_xaxis);
 
     plottingApp.context.append("g")
       .attr("transform", "translate(0," + plottingApp.context_height + ")")
@@ -185,12 +185,12 @@ export function drawLabeler(plottingApp) {
 
     // create main and context brushes
     plottingApp.plot.main_brush = plottingApp.main.append("g")
-    .attr("class", "main_brush")
-    .call(plottingApp.main_brush);
+      .attr("class", "main_brush")
+      .call(plottingApp.main_brush);
 
     plottingApp.plot.context_brush = plottingApp.context.append("g")
-    .attr("class", "context_brush")
-    .call(plottingApp.context_brush);
+      .attr("class", "context_brush")
+      .call(plottingApp.context_brush);
 
     // move brushes to back
     plottingApp.plot.main_brush.moveToBack();
@@ -203,23 +203,23 @@ export function drawLabeler(plottingApp) {
 
     // and replace it with our custom handler
     plottingApp.plot.context_brush.on("mousedown.brush", function () {
-        plottingApp.plot.context_brush.on("mouseup.brush", function () {
-            clearHandlers();
-        });
+      plottingApp.plot.context_brush.on("mouseup.brush", function () {
+        clearHandlers();
+      });
 
-        plottingApp.plot.context_brush.on("mousemove.brush", function () {
-            clearHandlers();
-            oldMousedown.call(this);
-        });
+      plottingApp.plot.context_brush.on("mousemove.brush", function () {
+        clearHandlers();
+        oldMousedown.call(this);
+      });
 
-        function clearHandlers() {
-            plottingApp.plot.context_brush.on("mousemove.brush", null);
-            plottingApp.plot.context_brush.on("mouseup.brush", null);
-        }
+      function clearHandlers() {
+        plottingApp.plot.context_brush.on("mousemove.brush", null);
+        plottingApp.plot.context_brush.on("mouseup.brush", null);
+      }
     });
 
     // set context brush to default extent
-    plottingApp.plot.context_brush.call(plottingApp.context_brush.move, 
+    plottingApp.plot.context_brush.call(plottingApp.context_brush.move,
       defaultExtent.map(plottingApp.context_xscale));
   }
 
@@ -232,20 +232,20 @@ export function drawLabeler(plottingApp) {
 
     //context plot
     plottingApp.plot.context_line = plottingApp.context.append("path")
-    .datum(plottingApp.context_data)
-    .attr("class", "line")
-    .attr("d", plottingApp.context_line)
-    .moveToBack();
+      .datum(plottingApp.context_data)
+      .attr("class", "line")
+      .attr("d", plottingApp.context_line)
+      .moveToBack();
 
 
     plottingApp.context_points = plottingApp.context.selectAll(".point")
-    .data(plottingApp.context_data)
-    .join("circle")
-    .attr("class", "point")
-    .attr("cx", function(d) { return plottingApp.context_xscale(d.time); })
-    .attr("cy", function(d) { return plottingApp.context_yscale(d.val); })
-    .attr("pointer-events", "none")
-    .attr("r", 2);
+      .data(plottingApp.context_data)
+      .join("circle")
+      .attr("class", "point")
+      .attr("cx", function (d) { return plottingApp.context_xscale(d.time); })
+      .attr("cy", function (d) { return plottingApp.context_yscale(d.val); })
+      .attr("pointer-events", "none")
+      .attr("r", 2);
   }
 
   /* update yaxes bounds based on selected and reference series */
@@ -268,44 +268,44 @@ export function drawLabeler(plottingApp) {
     }
 
     plottingApp.plot.y_axis = plottingApp.main.append("g")
-    .attr("class", "y axis primary")
-    .call(plottingApp.y_axis)
-    .call(g => g.select(".domain").remove());
+      .attr("class", "y axis primary")
+      .call(plottingApp.y_axis)
+      .call(g => g.select(".domain").remove());
 
     // add primary y axis label
     var axisBox = plottingApp.plot.y_axis.node().getBBox();
     plottingApp.main.select(".y.axis.primary").append("text")
-    .attr("class", "y label primary")
-    .attr("text-anchor", "middle")
-    .attr("transform", "rotate(-90)")
-    .attr("y", 0 - axisBox.width - plottingApp.label_margin.small)
-    .attr("x", 0 - plottingApp.main_height / 2)
-    .attr("fill", "currentColor")
-    .text(plottingApp.selectedSeries);
+      .attr("class", "y label primary")
+      .attr("text-anchor", "middle")
+      .attr("transform", "rotate(-90)")
+      .attr("y", 0 - axisBox.width - plottingApp.label_margin.small)
+      .attr("x", 0 - plottingApp.main_height / 2)
+      .attr("fill", "currentColor")
+      .text(plottingApp.selectedSeries);
 
     // handle editable primary y axis
     var lastTick = plottingApp.main.selectAll(".y.axis.primary .tick").last(),
-    translateY = Number(lastTick.attr("transform").split(",")[1].slice(0, -1)); // drop Edit button to highest tick
+      translateY = Number(lastTick.attr("transform").split(",")[1].slice(0, -1)); // drop Edit button to highest tick
 
     var p_editBtn = plottingApp.main.select(".y.axis.primary").append("g")
-    .attr("class", "button y primary editBtn")
-    .attr("transform", "translate(" + (0 - axisBox.width - plottingApp.label_margin.small) + "," + translateY + ")");
+      .attr("class", "button y primary editBtn")
+      .attr("transform", "translate(" + (0 - axisBox.width - plottingApp.label_margin.small) + "," + translateY + ")");
 
     p_editBtn.append("rect")
-    .attr("class", "editRect")
-    .attr("stroke", "currentColor")
-    .attr("rx", "2px")
-    .attr("stroke-width", "0.75px")
-    .attr("width", "26px")
-    .attr("height", "16px")
-    .attr("transform", "translate(-21, -8)");
+      .attr("class", "editRect")
+      .attr("stroke", "currentColor")
+      .attr("rx", "2px")
+      .attr("stroke-width", "0.75px")
+      .attr("width", "26px")
+      .attr("height", "16px")
+      .attr("transform", "translate(-21, -8)");
 
     p_editBtn.append("text")
-    .text("Edit")
-    .attr("dy", "0.32em")
-    .attr("cursor", "pointer")
-    .attr("fill", "currentColor")
-    .on("click", function(d, i) { return updateMainY(plottingApp.selectedSeries); });
+      .text("Edit")
+      .attr("dy", "0.32em")
+      .attr("cursor", "pointer")
+      .attr("fill", "currentColor")
+      .on("click", function (d, i) { return updateMainY(plottingApp.selectedSeries); });
 
     // handle redraw reference y axis
     if (plottingApp.plot.ref_axis) {
@@ -324,45 +324,45 @@ export function drawLabeler(plottingApp) {
       plottingApp.secondary_yscale.domain(minMax);
 
       plottingApp.plot.ref_axis = plottingApp.main.append("g")
-      .attr("class", "y axis secondary")
-      .attr("transform", "translate(" + plottingApp.width + ",0)")
-      .call(plottingApp.ref_axis)
-      .call(g => g.select(".domain").remove());
+        .attr("class", "y axis secondary")
+        .attr("transform", "translate(" + plottingApp.width + ",0)")
+        .call(plottingApp.ref_axis)
+        .call(g => g.select(".domain").remove());
 
       // add reference y axis label
       axisBox = plottingApp.plot.ref_axis.node().getBBox();
       plottingApp.main.select(".y.axis.secondary").append("text")
-          .attr("class", "y label secondary")
-          .attr("text-anchor", "middle")
-          .attr("transform", "rotate(-90)")
-          .attr("y", 0 + axisBox.width + plottingApp.label_margin.large)
-          .attr("x", 0 - plottingApp.main_height / 2)
-          .attr("fill", "currentColor")
-          .text(plottingApp.refSeries);
+        .attr("class", "y label secondary")
+        .attr("text-anchor", "middle")
+        .attr("transform", "rotate(-90)")
+        .attr("y", 0 + axisBox.width + plottingApp.label_margin.large)
+        .attr("x", 0 - plottingApp.main_height / 2)
+        .attr("fill", "currentColor")
+        .text(plottingApp.refSeries);
 
       // handle editable primary y axis
       lastTick = plottingApp.main.selectAll(".y.axis.secondary .tick").last(),
-      translateY = lastTick.attr("transform").split(",")[1].slice(0, -1); // drop Edit button to highest tick
+        translateY = lastTick.attr("transform").split(",")[1].slice(0, -1); // drop Edit button to highest tick
 
       var r_editBtn = plottingApp.main.select(".y.axis.secondary").append("g")
-      .attr("class", "button y secondary editBtn")
-      .attr("transform", "translate(" + (axisBox.width + plottingApp.label_margin.small) + "," + translateY + ")");
+        .attr("class", "button y secondary editBtn")
+        .attr("transform", "translate(" + (axisBox.width + plottingApp.label_margin.small) + "," + translateY + ")");
 
       r_editBtn.append("rect")
-      .attr("class", "editRect")
-      .attr("stroke", "currentColor")
-      .attr("stroke-width", "0.75px")
-      .attr("rx", "2px")
-      .attr("width", "26px")
-      .attr("height", "16px")
-      .attr("transform", "translate(-4, -8)");
+        .attr("class", "editRect")
+        .attr("stroke", "currentColor")
+        .attr("stroke-width", "0.75px")
+        .attr("rx", "2px")
+        .attr("width", "26px")
+        .attr("height", "16px")
+        .attr("transform", "translate(-4, -8)");
 
       r_editBtn.append("text")
-      .text("Edit")
-      .attr("dy", "0.32em")
-      .attr("cursor", "pointer")
-      .attr("fill", "currentColor")
-      .on("click", function(d, i) { return updateMainY(plottingApp.refSeries); });
+        .text("Edit")
+        .attr("dy", "0.32em")
+        .attr("cursor", "pointer")
+        .attr("fill", "currentColor")
+        .on("click", function (d, i) { return updateMainY(plottingApp.refSeries); });
     }
   }
 
@@ -371,15 +371,15 @@ export function drawLabeler(plottingApp) {
     // subset to only data in current domain
     var x_domain = plottingApp.main_xscale.domain();
 
-    var  main_data = plottingApp.data.filter(function(d){
+    var main_data = plottingApp.data.filter(function (d) {
       return x_domain[0] <= d.time & d.time <= x_domain[1]
     });
 
     // handles ref series
-    var secondary_data = plottingApp.refSeries == "" || 
+    var secondary_data = plottingApp.refSeries == "" ||
       plottingApp.refSeries == plottingApp.selectedSeries ? null : plottingApp.allData
         .filter(d => d.series == plottingApp.refSeries)
-        .filter(function(d) {
+        .filter(function (d) {
           return x_domain[0] <= d.time & d.time <= x_domain[1]
         });
 
@@ -392,7 +392,7 @@ export function drawLabeler(plottingApp) {
     // add primary series data line
     plottingApp.main.append("path")
       .datum(main_data)
-      .attr("class","line")
+      .attr("class", "line")
       .attr("fill-opacity", "0.7")
       .attr("d", plottingApp.main_line);
 
@@ -400,42 +400,42 @@ export function drawLabeler(plottingApp) {
     var point = plottingApp.main.selectAll("circle").data(total_data);
 
     point.join("circle")
-    .attr("class", "point")
-    .attr("cx", function(d) { return plottingApp.main_xscale(d.time); })
-    .attr("cy", function(d) { return selectYScale(d); })
-    .attr("r", 5);
+      .attr("class", "point")
+      .attr("cx", function (d) { return plottingApp.main_xscale(d.time); })
+      .attr("cy", function (d) { return selectYScale(d); })
+      .attr("r", 5);
 
     // add secondary line and update secondary point styling if there is reference
     if (secondary_data) {
       plottingApp.main.append("path")
         .datum(secondary_data)
-        .attr("class","line")
+        .attr("class", "line")
         .attr("id", "secondary_line")
         .attr("fill-opacity", "0.4")
         .attr("d", plottingApp.secondary_line)
         .moveToBack();
 
       plottingApp.main.selectAll(".point")
-      .filter((d, i) => d.series == plottingApp.refSeries)
-      .attr("fill-opacity", "0.4")
-      .attr("r", 2)
-      .attr("pointer-events", "none")
-      .moveToBack();
+        .filter((d, i) => d.series == plottingApp.refSeries)
+        .attr("fill-opacity", "0.4")
+        .attr("r", 2)
+        .attr("pointer-events", "none")
+        .moveToBack();
     }
 
     /* add hover and click-label functionality for primary series points */
     var timer;
 
     plottingApp.main.selectAll(".point")
-    .filter((d, i) => d.series == plottingApp.selectedSeries)
-    .moveToFront()
-    .attr("fill-opacity", "0.7")
-    .attr("pointer-events", "all")
-    .on("click", function(point){
-          //allow clicking on single points
-          toggleSelected(point);
-          updateSelection();
-        });
+      .filter((d, i) => d.series == plottingApp.selectedSeries)
+      .moveToFront()
+      .attr("fill-opacity", "0.7")
+      .attr("pointer-events", "all")
+      .on("click", function (point) {
+        //allow clicking on single points
+        toggleSelected(point);
+        updateSelection();
+      });
 
     toggleHoverinfo(true);
     updateSelection();
@@ -466,16 +466,16 @@ export function drawLabeler(plottingApp) {
   function updateBrushData() {
     // Build quadtree for fast brushing
     plottingApp.quadtree = d3.quadtree()
-              .x(function(d) { return d.time; })
-              .y(function(d) { return d.val; })
-              .addAll(plottingApp.data);
+      .x(function (d) { return d.time; })
+      .y(function (d) { return d.val; })
+      .addAll(plottingApp.data);
 
     // Downsample context data for big datasets
     var sampler = largestTriangleThreeBucket();
-    
+
     // Configure the x / y value accessors
     sampler.x(function (d) { return d.x; })
-        .y(function (d) { return d.y; });
+      .y(function (d) { return d.y; });
 
     // Configure the size of the buckets used to downsample the data.
     // Have at most 1000 context points
@@ -485,30 +485,30 @@ export function drawLabeler(plottingApp) {
     // bucket_size = (bucket_size == 2) ? bucket_size + 1 : bucket_size;
 
     sampler.bucketSize(bucket_size);
-    
+
     plottingApp.context_data = sampler(plottingApp.data);
   }
 
   function createInView(domain) {
     function inView(d) {
-      var dom = domain.map(function(d) { return plottingApp.context_xscale(d); });
+      var dom = domain.map(function (d) { return plottingApp.context_xscale(d); });
       return plottingApp.context_xscale(d.x) >= dom[0] && plottingApp.context_xscale(d.x) <= dom[1];
     }
     return inView;
-  }  
+  }
 
   function brushedMain() {
     var extent = d3.brushSelection(plottingApp.plot.main_brush.node());
     if (extent === null) {
       return;
     }
-    
+
     // convert pixels defining brush into actual time, value scales
     var xmin = plottingApp.main_xscale.invert(extent[0][0]),
-    xmax = plottingApp.main_xscale.invert(extent[1][0]),
-    ymax = plottingApp.main_yscale.invert(extent[0][1]),
-    ymin = plottingApp.main_yscale.invert(extent[1][1]);
-    
+      xmax = plottingApp.main_xscale.invert(extent[1][0]),
+      ymax = plottingApp.main_yscale.invert(extent[0][1]),
+      ymin = plottingApp.main_yscale.invert(extent[1][1]);
+
     search(plottingApp.quadtree, xmin, ymin, xmax, ymax);
     updateSelection();
     plottingApp.plot.main_brush.call(plottingApp.main_brush.move, null);
@@ -518,7 +518,7 @@ export function drawLabeler(plottingApp) {
     var s = d3.brushSelection(plottingApp.plot.context_brush.node()).map(plottingApp.context_xscale.invert, plottingApp.context_xscale);
     var brushData = plottingApp.data.filter(createInView(s));
     if (brushData.length >= 2000) {
-      var firstIndex = plottingApp.data.map(function(d) { return d.time; }).indexOf(s[0]);
+      var firstIndex = plottingApp.data.map(function (d) { return d.time; }).indexOf(s[0]);
     }
   }
 
@@ -528,7 +528,7 @@ export function drawLabeler(plottingApp) {
 
     updateMain();
 
-    
+
     var limits = plottingApp.context_xscale.domain();
     if (plottingApp.context_brush.extent()[1] >= 1 * plottingApp.context_xscale.domain()[1]) {
       console.log("far right");
@@ -536,31 +536,31 @@ export function drawLabeler(plottingApp) {
   }
 
   //keyboard functions to change the focus
-  function transformContext(shift,scale) {
+  function transformContext(shift, scale) {
     var currentExtent = d3.brushSelection(plottingApp.plot.context_brush.node());
-    currentExtent = currentExtent.map(function(d) {
+    currentExtent = currentExtent.map(function (d) {
       return plottingApp.context_xscale.invert(d);
     });
 
 
-    var offset0 = ((1 - Math.pow(1.1,scale)) + 0.1 * shift) * (currentExtent[1] - currentExtent[0]);
-    var offset1 = ((Math.pow(1.1,scale) - 1) + 0.1 * shift) * (currentExtent[1] - currentExtent[0]);
+    var offset0 = ((1 - Math.pow(1.1, scale)) + 0.1 * shift) * (currentExtent[1] - currentExtent[0]);
+    var offset1 = ((Math.pow(1.1, scale) - 1) + 0.1 * shift) * (currentExtent[1] - currentExtent[0]);
 
     // don't shift past the ends of the scale
     var limits = plottingApp.context_xscale.domain();
 
     // if we go off the left edge, don't allow us to move left
-    if ((1*currentExtent[0])+offset0<limits[0]) {
+    if ((1 * currentExtent[0]) + offset0 < limits[0]) {
       shift = 0;
       offset0 = limits[0] - currentExtent[0];
-      offset1 = offset0 + ((Math.pow(1.1,scale) - 1) + 0.1 * shift) * (currentExtent[1] - currentExtent[0]);
+      offset1 = offset0 + ((Math.pow(1.1, scale) - 1) + 0.1 * shift) * (currentExtent[1] - currentExtent[0]);
     }
 
     // if we go off the right edge, don't allow us to move right
-    if ((1*currentExtent[1])+offset1>limits[1]) {
+    if ((1 * currentExtent[1]) + offset1 > limits[1]) {
       shift = 0;
       offset1 = limits[1] - currentExtent[1];
-      offset0 = offset1 + ((1 - Math.pow(1.1,scale)) + 0.1 * shift) * (currentExtent[1] - currentExtent[0]);
+      offset0 = offset1 + ((1 - Math.pow(1.1, scale)) + 0.1 * shift) * (currentExtent[1] - currentExtent[0]);
 
     }
 
@@ -572,13 +572,13 @@ export function drawLabeler(plottingApp) {
 
 
     // do shift and update brushing
-    var newExtent = [(1 * currentExtent[0]) + offset0,(1 * currentExtent[1]) + offset1];
+    var newExtent = [(1 * currentExtent[0]) + offset0, (1 * currentExtent[1]) + offset1];
 
     // disable mouseover info while shifting
     toggleHoverinfo(false);
 
-    plottingApp.plot.context_brush.call(plottingApp.context_brush.move, 
-      newExtent.map(function(d) { return plottingApp.context_xscale(d); }));
+    plottingApp.plot.context_brush.call(plottingApp.context_brush.move,
+      newExtent.map(function (d) { return plottingApp.context_xscale(d); }));
 
     // re-enable mouseover info
     toggleHoverinfo(true);
@@ -586,11 +586,11 @@ export function drawLabeler(plottingApp) {
     // re color points
     updateSelection();
   }
-  
+
   // Find the nodes within the specified rectangle.
   function search(quadtree, brush_xmin, brush_ymin, brush_xmax, brush_ymax) {
     // use quadtree to brush points in defined rectangle
-    plottingApp.quadtree.visit(function(node, quad_xmin, quad_ymin, quad_xmax, quad_ymax) {
+    plottingApp.quadtree.visit(function (node, quad_xmin, quad_ymin, quad_xmax, quad_ymax) {
       if (!node.length) {
         do {
           var d = node.data;
@@ -600,10 +600,10 @@ export function drawLabeler(plottingApp) {
           } else {
             d.label = ((d.time >= brush_xmin) && (d.time <= brush_xmax) && (d.val >= brush_ymin) && (d.val <= brush_ymax)) ? '' : d.label;
           }
-          
+
         } while (node = node.next);
       }
-      
+
       // return true if current quadtree rectangle intersects with brush (looks deeper in tree if true)
       return quad_xmin >= brush_xmax || quad_ymin >= brush_ymax || quad_xmax < brush_xmin || quad_ymax < brush_ymin;
     });
@@ -615,38 +615,38 @@ export function drawLabeler(plottingApp) {
     if (b) {
       // enable mouseover/mouseout hoverinfo
       plottingApp.main.selectAll(".point")
-      .on("mouseover", function(point) {
-          plottingApp.hoverTimer = setTimeout(function() {
+        .on("mouseover", function (point) {
+          plottingApp.hoverTimer = setTimeout(function () {
             updateHoverinfo(point.actual_time, point.val, point.label);
           }, 250);
         })
-      .on("mouseout", function() {
+        .on("mouseout", function () {
           clearTimeout(plottingApp.hoverTimer);
           plottingApp.hoverTimer = null;
           updateHoverinfo("", "", "");
-      });
+        });
     } else {
       // clear hoverinfo and timeout
       if (plottingApp.hoverTimer) {
         clearTimeout(plottingApp.hoverTimer);
         updateHoverinfo("", "", "");
       }
-      
+
       // replace handler
       plottingApp.main.selectAll(".point")
-      .on("mouseover", function(e) {
-        e.preventDefault();
-      })
-      .on("mouseout", function(e) {
-        e.preventDefault();
-      });
+        .on("mouseover", function (e) {
+          e.preventDefault();
+        })
+        .on("mouseout", function (e) {
+          e.preventDefault();
+        });
     }
-    
+
   }
 
-  /* format csv data with data structure */ 
+  /* format csv data with data structure */
   function type(d) {
-    d.actual_time = DateTime.fromISO(d.time, {setZone: true});
+    d.actual_time = DateTime.fromISO(d.time, { setZone: true });
     var d2 = d.time.toISO({ includeOffset: false });
     d.time = DateTime.fromISO(d2);;
     d.val = +d.val;
@@ -719,12 +719,12 @@ export function drawLabeler(plottingApp) {
     if (d.series == plottingApp.refSeries) {
       return plottingApp.secondary_yscale(d.val)
     }
-  } 
+  }
 
   /* increase extent by padding */
   function padExtent(extent, padding) {
     padding = (typeof padding === "undefined") ? 0.01 : padding;
-    var range = extent[1]-extent[0];
+    var range = extent[1] - extent[0];
     // 1*x is quick hack to handle date/time axes
     return [(1 * extent[0]) - padding * range, (1 * extent[1]) + padding * range].map(d => d.toFixed(3));
   }
@@ -738,15 +738,15 @@ export function drawLabeler(plottingApp) {
 
   function updateSelection() {
     plottingApp.main.selectAll(".point")
-      .attr("style", function(d) { return getPointStyle(d) });
+      .attr("style", function (d) { return getPointStyle(d) });
     plottingApp.context.selectAll(".point")
-      .attr("style", function(d) { return getPointStyle(d) });
+      .attr("style", function (d) { return getPointStyle(d) });
   }
 
   /* calculate default extent based on data length */
   function getDefaultExtent() {
     var start_date = plottingApp.data[0].time,
-    d_len = plottingApp.data.length, end_date;
+      d_len = plottingApp.data.length, end_date;
     if (d_len <= 100) {
       end_date = plottingApp.data[d_len - 1].time;
     } else if (d_len <= 1000) {
@@ -762,10 +762,10 @@ export function drawLabeler(plottingApp) {
   /* return the bounds of the given y axis */
   function getMinMax(axis) {
     var y_vals = plottingApp.allData.filter(d => d.series == axis).map(d => d.val),
-    minMax = y_vals.reduce(([min, max], val) => [Math.min(min, val), Math.max(max, val)], [
-      Number.POSITIVE_INFINITY,
-      Number.NEGATIVE_INFINITY,
-    ]);
+      minMax = y_vals.reduce(([min, max], val) => [Math.min(min, val), Math.max(max, val)], [
+        Number.POSITIVE_INFINITY,
+        Number.NEGATIVE_INFINITY,
+      ]);
     return padExtent(minMax, 0.1);
   }
 
@@ -779,23 +779,23 @@ export function drawLabeler(plottingApp) {
     }
   }
 
-  $("#seriesSelect").change(function() {
+  $("#seriesSelect").change(function () {
     plottingApp.selectedSeries = $("#seriesSelect option:selected").val();
     plottingApp.data = plottingApp.allData.filter(d => d.series == plottingApp.selectedSeries);
     replot();
   });
 
-  $("#referenceSelect").change(function() {
+  $("#referenceSelect").change(function () {
     setReference($("#referenceSelect option:selected").val());
     replot();
   })
 
-  $("#labelSelect").change(function() {
+  $("#labelSelect").change(function () {
     plottingApp.selectedLabel = $("#labelSelect option:selected").attr("name");
   });
 
-  $("#clearSeries").click(function() {
-    plottingApp.quadtree.visit(function(node, quad_xmin, quad_ymin, quad_xmax, quad_ymax) {
+  $("#clearSeries").click(function () {
+    plottingApp.quadtree.visit(function (node, quad_xmin, quad_ymin, quad_xmax, quad_ymax) {
       if (!node.length) {
         do {
           node.data.label = '';
@@ -806,36 +806,36 @@ export function drawLabeler(plottingApp) {
     updateSelection();
   });
 
-  $("#triggerReplot").click(function() {
+  $("#triggerReplot").click(function () {
     replot();
-   });
+  });
 
-  $("#triggerRecolor").click(function() {
+  $("#triggerRecolor").click(function () {
     updateSelection();
-   });
+  });
 
-  $("#export").click(function() {
+  $("#export").click(function () {
     var csvContent = plottingApp.headerStr + "\n";
 
-    plottingApp.allData.forEach(function(dataArray){
+    plottingApp.allData.forEach(function (dataArray) {
       var date = dataArray.actual_time.toISO();
       let row = dataArray.series + "," + date
-                + "," + dataArray.val + "," + dataArray.label;
+        + "," + dataArray.val + "," + dataArray.label;
       csvContent += row + "\n";
     });
     var saveData = (function () {
-        var a = document.createElement("a");
-        document.body.appendChild(a);
-        a.style = "display: none";
-        return function (data, fileName) {
-            var string = csvContent,
-                blob = new Blob([string], {type: "text/csv, charset=UTF-8"}),
-                url = window.URL.createObjectURL(blob);
-            a.href = url;
-            a.download = fileName;
-            a.click();
-            window.URL.revokeObjectURL(url);
-        };
+      var a = document.createElement("a");
+      document.body.appendChild(a);
+      a.style = "display: none";
+      return function (data, fileName) {
+        var string = csvContent,
+          blob = new Blob([string], { type: "text/csv, charset=UTF-8" }),
+          url = window.URL.createObjectURL(blob);
+        a.href = url;
+        a.download = fileName;
+        a.click();
+        window.URL.revokeObjectURL(url);
+      };
     }());
     var filename = plottingApp.filename;
     if (!filename.endsWith("-labeled")) {
@@ -845,7 +845,7 @@ export function drawLabeler(plottingApp) {
     $("#exportComplete").show();
   });
 
-  d3.select(window).on("keydown", function(e) {
+  d3.select(window).on("keydown", function (e) {
     plottingApp.shiftKey = d3.event.shiftKey;
     if (plottingApp.shiftKey) {
       plottingApp.shiftKey = true;
@@ -886,7 +886,7 @@ export function drawLabeler(plottingApp) {
     }
   });
 
-  d3.select(window).on("keyup", function() {
+  d3.select(window).on("keyup", function () {
     plottingApp.shiftKey = d3.event.shiftKey;
     if (plottingApp.shiftKey) {
       plottingApp.shiftKey = true;
