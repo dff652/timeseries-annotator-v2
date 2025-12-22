@@ -146,6 +146,8 @@
                   <span class="stat-label">点数</span><span class="stat-value">{{ selectionStats.count }}</span>
                   <span class="stat-label">范围</span><span class="stat-value">{{ formatNumber(selectionStats.minVal) }} ~ {{ formatNumber(selectionStats.maxVal) }}</span>
                   <span class="stat-label">均值</span><span class="stat-value">{{ formatNumber(selectionStats.mean) }}</span>
+                </div>
+                <div class="stats-grid">
                   <span class="stat-label">标准差</span><span class="stat-value">{{ formatNumber(selectionStats.std) }}</span>
                 </div>
               </div>
@@ -181,12 +183,12 @@
             <div v-else class="empty-message">← 左侧选择标签后在图中框选</div>
           </div>
           
-          <!-- 数据段（显示当前选中标签的段） -->
+          <!-- 数据段索引（显示当前选中标签的段） -->
           <div class="form-group" v-if="activeChartLabel">
-            <label>数据段 ({{ activeSegments.length }})</label>
+            <label>数据段索引 ({{ activeSegments.length }})</label>
             <div class="segments-list" v-if="activeSegments.length > 0">
-              <div v-for="(seg, idx) in activeSegments" :key="idx" class="segment-item clickable" @click="navigateToSegment(seg)">
-                <span class="segment-range">{{ seg.start }} - {{ seg.end }}</span>
+              <div v-for="(seg, idx) in activeSegments" :key="idx" class="segment-item clickable" @click="navigateToSegment(seg)" :style="{ borderLeft: '3px solid ' + activeLabelColor }">
+                <span class="segment-range" :style="{ color: activeLabelColor }">{{ seg.start }} - {{ seg.end }}</span>
                 <span class="segment-count">({{ seg.count }}点)</span>
                 <button class="btn-icon-sm" @click.stop="removeSegmentByRange(seg)" title="删除">×</button>
               </div>
@@ -194,7 +196,7 @@
             <div v-else class="empty-message">该标签暂无数据段</div>
           </div>
           <div class="form-group" v-else-if="chartLabelStats.length > 0">
-            <label>数据段</label>
+            <label>数据段索引</label>
             <div class="empty-message">↑ 点击标签查看数据段</div>
           </div>
           
@@ -436,7 +438,10 @@ export default {
       editingAnnotationIndex: null,
       
       // Track segment cycle position for each annotation (key: annotation index)
-      annotationCyclePositions: {}
+      annotationCyclePositions: {},
+      
+      // Currently active label in workspace (for viewing its segments)
+      activeChartLabel: null
     }
   },
   computed: {
@@ -514,6 +519,42 @@ export default {
     annotationLabel() {
       const _v = this.annotationVersion;
       return this.currentAnnotation.label;
+    },
+    // Get segments for the currently active label in workspace
+    activeSegments() {
+      const _v = this.chartDataVersion;
+      if (!this.activeChartLabel || !window.plottingApp || !window.plottingApp.allData) return [];
+      
+      // Find all points with this label
+      const labeledPoints = window.plottingApp.allData.filter(d => d.label === this.activeChartLabel);
+      if (labeledPoints.length === 0) return [];
+      
+      // Sort by index
+      const indices = labeledPoints.map(d => parseInt(d.id)).sort((a, b) => a - b);
+      
+      // Group into contiguous segments
+      const segments = [];
+      let segStart = indices[0];
+      let segEnd = indices[0];
+      
+      for (let i = 1; i < indices.length; i++) {
+        if (indices[i] === segEnd + 1) {
+          segEnd = indices[i];
+        } else {
+          segments.push({ start: segStart, end: segEnd, count: segEnd - segStart + 1 });
+          segStart = indices[i];
+          segEnd = indices[i];
+        }
+      }
+      segments.push({ start: segStart, end: segEnd, count: segEnd - segStart + 1 });
+      
+      return segments;
+    },
+    // Get color for the currently active label
+    activeLabelColor() {
+      if (!this.activeChartLabel) return '#7E4C64';
+      const stat = this.chartLabelStats.find(s => s.text === this.activeChartLabel);
+      return stat?.color || '#7E4C64';
     }
   },
   watch: {
@@ -893,77 +934,122 @@ export default {
       }
     },
     
-    // Load chart label (quick annotation) into edit area
-    loadChartLabelToEdit(stat) {
-      if (!stat || !stat.text || !plottingApp || !plottingApp.allData) return;
+    // Select a chart label to view its segments in workspace
+    selectChartLabel(stat) {
+      if (!stat || !stat.text) return;
       
-      // Find all points with this label and group into contiguous segments
-      const labeledPoints = plottingApp.allData.filter(d => d.label === stat.text);
-      if (labeledPoints.length === 0) return;
-      
-      // Sort by index
-      const indices = labeledPoints.map(d => parseInt(d.id)).sort((a, b) => a - b);
-      
-      // Group into contiguous segments
-      const segments = [];
-      let segStart = indices[0];
-      let segEnd = indices[0];
-      
-      for (let i = 1; i < indices.length; i++) {
-        if (indices[i] === segEnd + 1) {
-          segEnd = indices[i];
-        } else {
-          // Save current segment
-          segments.push({
-            start: segStart,
-            end: segEnd,
-            count: segEnd - segStart + 1
-          });
-          segStart = indices[i];
-          segEnd = indices[i];
-        }
-      }
-      // Don't forget the last segment
-      segments.push({
-        start: segStart,
-        end: segEnd,
-        count: segEnd - segStart + 1
-      });
-      
-      // Find the label info from labels config (to get color and category)
-      let labelObj = { id: stat.text, text: stat.text, color: stat.color };
-      const localCats = this.labels.local_change || {};
-      for (const [catId, cat] of Object.entries(localCats)) {
-        const foundLabel = cat.labels?.find(l => l.text === stat.text);
-        if (foundLabel) {
-          labelObj = {
-            id: foundLabel.id,
-            text: foundLabel.text,
-            color: stat.color,
-            categoryId: catId,
-            categoryName: cat.name
-          };
-          break;
-        }
+      // Toggle: if same label is clicked, deselect
+      if (this.activeChartLabel === stat.text) {
+        this.activeChartLabel = null;
+        return;
       }
       
-      // Set current annotation
-      this.currentAnnotation = {
-        label: labelObj,
-        segments: segments,
-        prompt: '',
-        expertOutput: ''
-      };
-      this.selectedLocalLabels = [labelObj];
-      this.annotationVersion++;
+      this.activeChartLabel = stat.text;
       
-      // Update plottingApp
+      // Update plottingApp for visual sync
       if (plottingApp) {
         plottingApp.selectedLabel = stat.text;
         plottingApp.labelColor = stat.color;
       }
       
-      this.showToast(`已加载"${stat.text}"的 ${segments.length} 个数据段到编辑区`, 'success');
+      // Find label info for currentAnnotation
+      let labelObj = { id: stat.text, text: stat.text, color: stat.color };
+      const localCats = this.labels.local_change || {};
+      for (const [catId, cat] of Object.entries(localCats)) {
+        const foundLabel = cat.labels?.find(l => l.text === stat.text);
+        if (foundLabel) {
+          labelObj = { ...foundLabel, color: stat.color, categoryId: catId, categoryName: cat.name };
+          break;
+        }
+      }
+      
+      // Update currentAnnotation with this label
+      this.currentAnnotation.label = labelObj;
+      this.selectedLocalLabels = [labelObj];
+      this.annotationVersion++;
+    },
+    
+    // Save the currently active label as an annotation
+    saveActiveLabel() {
+      if (!this.activeChartLabel || this.activeSegments.length === 0) {
+        this.showToast('请先选择标签并确保有数据段', 'error');
+        return;
+      }
+      
+      // Find label info
+      const stat = this.chartLabelStats.find(s => s.text === this.activeChartLabel);
+      if (!stat) return;
+      
+      let labelObj = { id: stat.text, text: stat.text, color: stat.color };
+      const localCats = this.labels.local_change || {};
+      for (const [catId, cat] of Object.entries(localCats)) {
+        const foundLabel = cat.labels?.find(l => l.text === stat.text);
+        if (foundLabel) {
+          labelObj = { ...foundLabel, color: stat.color, categoryId: catId, categoryName: cat.name };
+          break;
+        }
+      }
+      
+      const annotation = {
+        id: Date.now(),
+        label: labelObj,
+        segments: [...this.activeSegments],
+        prompt: this.currentAnnotation.prompt || '',
+        expertOutput: this.currentAnnotation.expertOutput || ''
+      };
+      
+      if (this.editingAnnotationIndex !== null) {
+        // Update existing
+        this.savedAnnotations.splice(this.editingAnnotationIndex, 1, annotation);
+        this.showToast(`已更新标注: ${labelObj.text}`, 'success');
+        this.editingAnnotationIndex = null;
+      } else {
+        // Check for duplicate
+        const existingIdx = this.savedAnnotations.findIndex(a => a.label.text === labelObj.text);
+        if (existingIdx >= 0) {
+          this.savedAnnotations.splice(existingIdx, 1, annotation);
+          this.showToast(`已更新标注: ${labelObj.text}`, 'success');
+        } else {
+          this.savedAnnotations.push(annotation);
+          this.showToast(`已保存标注: ${labelObj.text} (${annotation.segments.length}段)`, 'success');
+        }
+      }
+      
+      // Reset edit state but keep label active
+      this.currentAnnotation.prompt = '';
+      this.currentAnnotation.expertOutput = '';
+    },
+    
+    // Remove a segment by its range (for activeSegments)
+    removeSegmentByRange(seg) {
+      if (!seg || !this.activeChartLabel || !plottingApp || !plottingApp.allData) return;
+      
+      // Clear labels for points in this segment range
+      plottingApp.allData.forEach(d => {
+        const idx = parseInt(d.id);
+        if (idx >= seg.start && idx <= seg.end && d.label === this.activeChartLabel) {
+          d.label = '';
+        }
+      });
+      
+      // Refresh chart display
+      const updatePointStyle = function(d) {
+        if (d.label) {
+          const labelInfo = plottingApp.labelList?.find(l => l.name === d.label);
+          const color = labelInfo?.color || '#7E4C64';
+          return `fill: ${color}; stroke: ${color}; opacity: 0.75;`;
+        }
+        return 'fill: black; stroke: none; opacity: 1;';
+      };
+      if (plottingApp.main) {
+        plottingApp.main.selectAll('.point').attr('style', updatePointStyle);
+      }
+      if (plottingApp.context) {
+        plottingApp.context.selectAll('.point').attr('style', updatePointStyle);
+      }
+      
+      this.chartDataVersion++;
+      this.showToast(`已删除数据段: ${seg.start} - ${seg.end}`, 'info');
     },
     
     // Navigate chart to show a specific segment
@@ -1418,6 +1504,12 @@ export default {
       
       // Increment version to trigger computed property updates
       this.annotationVersion++;
+      this.chartDataVersion++;
+      
+      // Auto-switch to show this label's segments in workspace
+      if (labelToUse && labelToUse.text) {
+        this.activeChartLabel = labelToUse.text;
+      }
       
       console.log('NEW segment with label:', JSON.stringify(segment));
       console.log('Total segments:', newSegments.length);
@@ -1968,5 +2060,66 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
   font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
   font-weight: 500;
   white-space: nowrap;
+}
+
+/* Chart Labels Container in Workspace */
+.chart-labels-container {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.chart-label-tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 4px 8px;
+  border-radius: 4px;
+  color: white;
+  font-size: 0.8rem;
+  cursor: pointer;
+  transition: all 0.2s ease;
+  border: 2px solid transparent;
+}
+
+.chart-label-tag:hover {
+  opacity: 0.9;
+  transform: translateY(-1px);
+}
+
+.chart-label-tag.active {
+  border-color: #333;
+  box-shadow: 0 2px 8px rgba(0,0,0,0.2);
+}
+
+.chart-label-tag .label-text {
+  font-weight: 500;
+}
+
+.chart-label-tag .label-count {
+  opacity: 0.8;
+  font-size: 0.75rem;
+}
+
+.chart-label-tag .label-remove {
+  background: rgba(255,255,255,0.3);
+  border: none;
+  color: white;
+  font-size: 0.9rem;
+  cursor: pointer;
+  padding: 0 3px;
+  margin-left: 2px;
+  border-radius: 2px;
+  line-height: 1;
+}
+
+.chart-label-tag .label-remove:hover {
+  background: rgba(255,255,255,0.5);
+}
+
+/* Workspace Section */
+.workspace-section {
+  border: 1px solid #e8dce3;
+  background: #fdfbfc;
 }
 </style>

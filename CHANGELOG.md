@@ -1,53 +1,48 @@
 # Changelog - 时序标注工具 V2
 
-## [0.3.1] - 2025-12-22
+## [0.3.1] - 2025-12-22/23
 
 ### 🎨 UI/UX 改进
 
 #### 框选统计优化
-- **位置调整** - 将框选统计从图表右上角叠加层移至工具栏显示，避免遮挡图表
-- **两行布局** - 第一行显示索引和点数，第二行显示范围、均值、标准差
-- **样式优化** - 添加浅紫色背景区分，数值使用等宽字体
+- **位置调整** - 将框选统计从图表右上角叠加层移至工具栏显示
+- **Grid布局** - 使用 CSS Grid 实现整齐的标签-数值对齐
+- **标准差单独一行** - 避免与其他指标对齐问题
 
-#### 右侧面板改进
-- **标注数据段导航** - 点击已保存标注的标签可循环定位到各数据段
-- **单个数据段导航** - 点击数据段 badge 可直接定位到该段
-- **图上标签导航** - 点击图上标签可定位到该标签的标注点
+#### 右侧面板重新设计
+- **统一工作区** - 合并"快速标注"和"当前编辑"为"📝 标注工作区"
+- **标签区** - 显示所有图上标签，点击切换查看数据段
+- **数据段索引** - 更名为"数据段索引"，索引颜色与标签颜色一致
+- **自动切换** - 主图框选时自动切换显示当前标签的数据段
 
 #### 交互增强
-- **图表悬停信息** - 主图点悬停显示时间、数值、标签信息
-- **缩略图高度增加** - 从50px增加到80px，便于选择操作
-- **防止误触右键菜单** - 缩略图区域禁用浏览器右键菜单
+- **标签点击切换** - 点击图上标签可切换查看其数据段
+- **段导航** - 点击数据段可定位到图表对应区域
+- **颜色一致性** - 数据段索引颜色、边框与标签颜色统一
 
 ### 🐛 Bug修复
 
 #### 缩略图残留问题
-- **图上标签取消后缩略图残留** - 修复 `clearLabelFromChart` 方法，同时更新主图和 context (缩略图) 点的样式
-- **已框选数据段取消后残留** - 修复 `removeSegment` 方法，删除段时同步清除对应数据点的标签，并更新主图和缩略图显示
+- **图上标签取消后缩略图残留** - 修复 `clearLabelFromChart` 方法
+- **已框选数据段取消后残留** - 修复 `removeSegmentByRange` 方法
 
 #### 响应式修复
-- **框选统计显示** - 修复 `selectionStats` 计算属性响应式更新问题
-- **数据段列表显示** - 修复 `currentAnnotation.segments` 响应式更新问题
-- **图表版本追踪** - 新增 `chartDataVersion` 和 `annotationVersion` 强制响应式更新
+- **框选统计显示** - 修复 `selectionStats` 计算属性响应式更新
+- **数据段列表** - 新增 `activeSegments` 计算属性动态获取标签的段
 
 ### 📁 文件改动
 
 #### Frontend
 - `src/views/Index.vue`
-  - 重构 `clearLabelFromChart()` 同时更新主图和缩略图
-  - 重构 `removeSegment()` 添加点标签清除逻辑
-  - 新增 `navigateToLabelPoints()` 定位图上标签
-  - 新增 `navigateToSegment()` 定位数据段
-  - 新增 `navigateToAnnotationSegment()` 定位已保存标注的数据段
-  - 新增 `cycleAnnotationSegments()` 循环定位标注数据段
-  - 新增 `panChartToRange()` 视图平移方法
-  - 框选统计移至工具栏，使用 `.selection-stats-inline` 样式
-  - 删除 `.chart-with-stats` 和 `.selection-stats-chart` 旧样式
-
-- `src/assets/js/LabelerD3.js`
-  - `context_height` 从50增加到80
-  - 添加缩略图右键菜单禁用
-  - 新增悬停信息显示逻辑
+  - 新增 `activeChartLabel` 数据属性跟踪当前选中标签
+  - 新增 `activeSegments` 计算属性获取当前标签的数据段
+  - 新增 `activeLabelColor` 计算属性获取当前标签颜色
+  - 新增 `selectChartLabel()` 方法切换选中标签
+  - 新增 `saveActiveLabel()` 方法保存当前标签为标注
+  - 新增 `removeSegmentByRange()` 方法删除指定范围段
+  - `updateSelectionRange()` 添加自动切换逻辑
+  - 重构右侧面板 HTML 结构
+  - 新增 `.chart-label-tag` 和 `.workspace-section` CSS 样式
 
 ---
 
