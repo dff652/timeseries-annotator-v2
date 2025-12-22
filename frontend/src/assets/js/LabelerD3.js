@@ -27,33 +27,33 @@ d3.selection.prototype.last = function () {
 };
 
 export function drawLabeler(plottingApp) {
-  //margins
-  plottingApp.main_margin = { top: 10, right: 120, bottom: 100, left: 90 },
-    // Increased bottom margin to prevent accidental tick selection when dragging thumbnail slider
-    plottingApp.context_margin = { top: 430, right: 140, bottom: 30, left: 90 },
+  //margins - increased chart areas
+  plottingApp.main_margin = { top: 10, right: 120, bottom: 80, left: 90 },
+    // Adjusted context margin for larger thumbnail
+    plottingApp.context_margin = { top: 380, right: 140, bottom: 20, left: 90 },
     // Get width with minimum fallback
     plottingApp.maindiv_width = Math.max($("#maindiv").width() || 800, 600),
     plottingApp.width = plottingApp.maindiv_width - plottingApp.main_margin.left - plottingApp.main_margin.right,
-    plottingApp.main_height = 500 - plottingApp.main_margin.top - plottingApp.main_margin.bottom,
-    plottingApp.context_height = 500 - plottingApp.context_margin.top - plottingApp.context_margin.bottom,
+    plottingApp.main_height = 320,  // Main chart height
+    plottingApp.context_height = 80,  // Increased thumbnail height for easier selection
     plottingApp.label_margin = { small: 10, large: 20 };
 
-  //scales
-  plottingApp.main_xscale = d3.scaleTime().range([0, plottingApp.width]),
-    plottingApp.context_xscale = d3.scaleTime().range([0, plottingApp.width]),
+  //scales - Use scaleLinear for numeric X-axis (index mode)
+  plottingApp.main_xscale = d3.scaleLinear().range([0, plottingApp.width]),
+    plottingApp.context_xscale = d3.scaleLinear().range([0, plottingApp.width]),
     plottingApp.main_yscale = d3.scaleLinear().range([plottingApp.main_height, 0]),
     plottingApp.secondary_yscale = d3.scaleLinear().range([plottingApp.main_height, 0]),
     plottingApp.context_yscale = d3.scaleLinear().range([plottingApp.context_height, 0]);
 
-  //axes
-  //can adjust multiscale time ticks: http://bl.ocks.org/mbostock/4149176
-  plottingApp.main_xaxis = d3.axisBottom(plottingApp.main_xscale),
-    plottingApp.context_xaxis = d3.axisBottom(plottingApp.context_xscale),
+  //axes - X axis now shows numeric ticks
+  plottingApp.main_xaxis = d3.axisBottom(plottingApp.main_xscale).tickFormat(d3.format('d')),
+    plottingApp.context_xaxis = d3.axisBottom(plottingApp.context_xscale).tickFormat(d3.format('d')),
     plottingApp.y_axis = d3.axisLeft(plottingApp.main_yscale),
     plottingApp.ref_axis = d3.axisRight(plottingApp.secondary_yscale);
 
   var viewBox_width = plottingApp.width + plottingApp.main_margin.left + plottingApp.main_margin.right,
-    viewBox_height = plottingApp.main_height + plottingApp.main_margin.top + plottingApp.main_margin.bottom;
+    // Include main chart + context (thumbnail) area
+    viewBox_height = plottingApp.context_margin.top + plottingApp.context_height + 40;
 
   //plotting areas
   plottingApp.svg = d3.select("#maindiv").append("svg")
@@ -77,8 +77,7 @@ export function drawLabeler(plottingApp) {
     .attr("viewBox", "0 0 " + viewBox_width + " " + viewBox_height)
     .attr("perserveAspectRatio", "xMinYMid meet");
 
-  // set instrSelect top margin
-  $("#instrSelect").css("margin-top", viewBox_height + 50);
+  // Toolbar is now above the chart, no need for margin-top
 
   plottingApp.svg.append("text")
     .text("Filename: " + plottingApp.filename)
@@ -97,10 +96,18 @@ export function drawLabeler(plottingApp) {
     .attr("class", "main")
     .attr("transform", "translate(" + plottingApp.main_margin.left + "," + plottingApp.main_margin.top + ")");
 
-  // smaller context window
+  // smaller context window (thumbnail)
   plottingApp.context = plottingApp.svg.append("g")
     .attr("class", "context")
     .attr("transform", "translate(" + plottingApp.context_margin.left + "," + plottingApp.context_margin.top + ")");
+
+  // Disable browser right-click menu on context (thumbnail) area
+  plottingApp.context.on("contextmenu", function () {
+    if (d3.event) d3.event.preventDefault();
+  });
+
+  // Reset function will be set up after init() when plot.context_brush exists
+  plottingApp.resetView = null;  // Placeholder, will be set in init()
 
   // d3 brushes
   plottingApp.main_brush = d3.brush()
@@ -112,8 +119,8 @@ export function drawLabeler(plottingApp) {
 
   plottingApp.context_brush = d3.brushX()
     .extent([[0, 0], [plottingApp.width, plottingApp.context_height]])
-    .on("end", brushedContext)
-    .on("brush", limitContext);
+    .on("brush", brushedContext)
+    .on("end", brushedContext);
 
   // d3 lines
   plottingApp.main_line = d3.line()
@@ -236,6 +243,23 @@ export function drawLabeler(plottingApp) {
     // set context brush to default extent
     plottingApp.plot.context_brush.call(plottingApp.context_brush.move,
       defaultExtent.map(plottingApp.context_xscale));
+
+    // Set up resetView function (after brush is created)
+    plottingApp.resetView = function () {
+      // Reset brush to default extent (same as initial view)
+      var resetExtent = getDefaultExtent();
+      plottingApp.plot.context_brush.call(plottingApp.context_brush.move,
+        resetExtent.map(plottingApp.context_xscale));
+    };
+
+    // Set up wheel zoom on main chart
+    plottingApp.svg.on("wheel.zoom", function () {
+      if (d3.event) {
+        d3.event.preventDefault();
+        var scale = d3.event.deltaY > 0 ? 2 : -2;  // Zoom out : Zoom in
+        transformContext(0, scale);
+      }
+    });
   }
 
   /* plot context graph line */
@@ -535,8 +559,12 @@ export function drawLabeler(plottingApp) {
   }
 
   function brushedMain() {
+    console.log('=== brushedMain called ===');
     var extent = d3.brushSelection(plottingApp.plot.main_brush.node());
+    console.log('  - extent:', extent);
+
     if (extent === null) {
+      console.log('  - extent is null, returning');
       return;
     }
 
@@ -546,29 +574,62 @@ export function drawLabeler(plottingApp) {
       ymax = plottingApp.main_yscale.invert(extent[0][1]),
       ymin = plottingApp.main_yscale.invert(extent[1][1]);
 
+    console.log('  - xmin:', xmin, 'xmax:', xmax, 'ymin:', ymin, 'ymax:', ymax);
+
     // Find selected points and calculate index range
     var selectedPoints = plottingApp.data.filter(function (d) {
       return d.time >= xmin && d.time <= xmax && d.val >= ymin && d.val <= ymax;
     });
 
+    console.log('  - selectedPoints.length:', selectedPoints.length);
+
+    // Store selection in plottingApp for Vue to access (always store if we have points)
     if (selectedPoints.length > 0) {
       // Find min and max indices
       var indices = selectedPoints.map(function (d) {
         return plottingApp.data.indexOf(d);
       }).filter(function (idx) { return idx >= 0; });
 
+      console.log('  - indices.length:', indices.length);
+
       if (indices.length > 0) {
         var startIdx = Math.min.apply(null, indices);
         var endIdx = Math.max.apply(null, indices);
 
-        // Store selection in plottingApp for Vue to access
+        // Calculate statistics
+        var values = selectedPoints.map(function (d) { return d.val; });
+        var minVal = Math.min.apply(null, values);
+        var maxVal = Math.max.apply(null, values);
+        var sum = values.reduce(function (a, b) { return a + b; }, 0);
+        var mean = sum / values.length;
+        var variance = values.reduce(function (acc, val) {
+          return acc + Math.pow(val - mean, 2);
+        }, 0) / values.length;
+        var std = Math.sqrt(variance);
+
         plottingApp.selection = {
           start: startIdx,
           end: endIdx,
-          count: selectedPoints.length
+          count: selectedPoints.length,
+          minVal: minVal,
+          maxVal: maxVal,
+          mean: mean,
+          std: std,
+          range: maxVal - minVal
         };
+        console.log('  - plottingApp.selection:', plottingApp.selection);
+      }
+    }
 
-        // Trigger Vue update via hidden button
+    // Trigger Vue update when brushing ends - call Vue directly instead of hidden button
+    if (plottingApp.selection) {
+      console.log('  - Calling Vue directly via window.vueApp');
+      if (window.vueApp && typeof window.vueApp.updateSelectionRange === 'function') {
+        window.vueApp.updateSelectionRange();
+        console.log('  - Vue method called successfully');
+      } else {
+        // Fallback to hidden button if Vue not available
+        console.log('  - Vue not available, falling back to button click');
         var updateBtn = document.getElementById('updateSelection');
         if (updateBtn) {
           updateBtn.click();
@@ -605,6 +666,12 @@ export function drawLabeler(plottingApp) {
   //keyboard functions to change the focus
   function transformContext(shift, scale) {
     var currentExtent = d3.brushSelection(plottingApp.plot.context_brush.node());
+
+    // Handle null brush selection (can happen after certain operations)
+    if (!currentExtent) {
+      currentExtent = plottingApp.context_xscale.range();
+    }
+
     currentExtent = currentExtent.map(function (d) {
       return plottingApp.context_xscale.invert(d);
     });
@@ -656,6 +723,10 @@ export function drawLabeler(plottingApp) {
 
   // Find the nodes within the specified rectangle.
   function search(quadtree, brush_xmin, brush_ymin, brush_xmax, brush_ymax) {
+    // Skip if no label is selected - don't color points without a label
+    if (!plottingApp.selectedLabel || plottingApp.selectedLabel === '') {
+      return;
+    }
     // use quadtree to brush points in defined rectangle
     plottingApp.quadtree.visit(function (node, quad_xmin, quad_ymin, quad_xmax, quad_ymax) {
       if (!node.length) {
@@ -711,43 +782,33 @@ export function drawLabeler(plottingApp) {
 
   }
 
-  /* format csv data with data structure */
+  /* format csv data with data structure - now uses numeric index mode */
   function type(d) {
-    // Handle both ISO string and DateTime object inputs
-    var timeValue;
-    if (typeof d.time === 'string') {
-      // Input is ISO string from server API
-      timeValue = DateTime.fromISO(d.time, { setZone: true });
-    } else if (d.time && typeof d.time.toISO === 'function') {
-      // Input is already a DateTime object from local upload
-      timeValue = d.time;
-    } else {
-      // Fallback: try to parse as string
-      timeValue = DateTime.fromISO(String(d.time), { setZone: true });
+    // Backend now sends numeric index as 'time' and 'idx'
+    // Use numeric index directly for X-axis
+    var indexValue = d.idx !== undefined ? d.idx : d.time;
+
+    // Ensure numeric value
+    if (typeof indexValue === 'string') {
+      indexValue = parseFloat(indexValue) || 0;
     }
 
-    d.actual_time = timeValue;
-    var d2 = timeValue.toISO({ includeOffset: false });
-    d.time = DateTime.fromISO(d2);
-    d.val = +d.val;
-    d.series = d.series;
-    d.label = d.label;
-    // Use toMillis() for proper DateTime to number conversion
-    d.x = d.time.toMillis ? d.time.toMillis() : +d.time;
+    d.time = indexValue;  // Use index as x position
+    d.actual_time = indexValue;  // Keep for hover display
+    d.val = +d.val || 0;
+    d.series = d.series || 'value';
+    d.label = d.label || '';
+    d.x = indexValue;
     d.y = d.val;
     return d;
   }
 
-  /* format luxon datetime obj to hoverbox time */
-  function formatHover(datetime) {
-    var hoverdate = datetime.toISO();
-    hoverdate = hoverdate.match(/(\d{4}-[01]\d-[0-3]\dT[0-2]\d:[0-5]\d:[0-5]\d\.\d+)([+-][0-2]\d:[0-5]\d|Z)/);
-    var dateArr = hoverdate[1].split(".");
-    if (dateArr[1] == "000") {
-      return dateArr[0]
-    } else {
-      return hoverdate
+  /* format index for hoverbox - now shows numeric index */
+  function formatHover(indexValue) {
+    if (typeof indexValue === 'number') {
+      return 'Index: ' + Math.round(indexValue);
     }
+    return String(indexValue);
   }
 
   /* update hoverbox info with point data */
@@ -761,8 +822,8 @@ export function drawLabeler(plottingApp) {
     } else {
       $("#hoverinfo").show();
       plottingApp.hoverinfo.time = formatHover(time);
-      plottingApp.hoverinfo.val = val.toFixed(2);
-      plottingApp.hoverinfo.label = label.toString();
+      plottingApp.hoverinfo.val = typeof val === 'number' ? val.toFixed(2) : val;
+      plottingApp.hoverinfo.label = label ? label.toString() : '';
       $("#updateHover").click();
     }
   }
@@ -806,6 +867,18 @@ export function drawLabeler(plottingApp) {
   function padExtent(extent, padding) {
     padding = (typeof padding === "undefined") ? 0.01 : padding;
     var range = extent[1] - extent[0];
+
+    // Protect against Infinity, NaN, or very narrow ranges
+    if (!isFinite(extent[0]) || !isFinite(extent[1]) || isNaN(range)) {
+      console.warn('padExtent: Invalid extent, using defaults', extent);
+      return [0, 1];  // Default fallback
+    }
+
+    // Ensure minimum range to avoid precision issues
+    if (Math.abs(range) < 0.001) {
+      range = 0.1;  // Provide some visual range
+    }
+
     // 1*x is quick hack to handle date/time axes
     return [(1 * extent[0]) - padding * range, (1 * extent[1]) + padding * range].map(d => d.toFixed(3));
   }
@@ -842,11 +915,18 @@ export function drawLabeler(plottingApp) {
 
   /* return the bounds of the given y axis */
   function getMinMax(axis) {
-    var y_vals = plottingApp.allData.filter(d => d.series == axis).map(d => d.val),
-      minMax = y_vals.reduce(([min, max], val) => [Math.min(min, val), Math.max(max, val)], [
-        Number.POSITIVE_INFINITY,
-        Number.NEGATIVE_INFINITY,
-      ]);
+    var y_vals = plottingApp.allData.filter(d => d.series == axis).map(d => d.val);
+
+    // Protect against empty arrays
+    if (y_vals.length === 0) {
+      console.warn('getMinMax: No data for series', axis);
+      return [0, 1];  // Default fallback
+    }
+
+    var minMax = y_vals.reduce(([min, max], val) => [Math.min(min, val), Math.max(max, val)], [
+      Number.POSITIVE_INFINITY,
+      Number.NEGATIVE_INFINITY,
+    ]);
     return padExtent(minMax, 0.1);
   }
 

@@ -115,91 +115,118 @@
             </div>
           </div>
           
-          <!-- D3 Chart Container -->
-          <div id="maindiv"></div>
+          
 
-          <!-- Instructions & Toolbar -->
+          
+          <!-- D3 Chart Container -->
+          <!-- Instructions & Toolbar (above chart) -->
           <div class="toolbar" v-if="isChartMode" id="instrSelect">
             <div class="toolbar-row">
               <div class="toolbar-section instr compact">
                 <span><strong>标注:</strong> 点击切换 | 拖拽框选 | <kbd>Shift</kbd>+拖拽取消</span>
               </div>
               <div class="toolbar-section instr compact">
-                <span><strong>导航:</strong> <kbd>←</kbd><kbd>→</kbd>平移 | <kbd>↑</kbd><kbd>↓</kbd>缩放</span>
+                <span><strong>导航:</strong> <kbd>←</kbd><kbd>→</kbd>平移 | <kbd>↑</kbd><kbd>↓</kbd>或滚轮缩放</span>
               </div>
               <div class="toolbar-section actions-inline">
+                <button class="btn btn-secondary btn-sm" @click="resetChartView">🔄 重置视图</button>
                 <button class="btn btn-warning btn-sm" @click="clearAllLabels">清除标注</button>
               </div>
             </div>
             <div class="toolbar-row">
               <div class="toolbar-section selectors" id="selectors">
-                <span>主序列: <select id="seriesSelect"></select></span>
-                <span>参考序列: <select id="referenceSelect"></select></span>
+                <div class="selector-item"><label>主序列:</label><select id="seriesSelect"></select></div>
+                <div class="selector-item"><label>参考序列:</label><select id="referenceSelect"></select></div>
+              </div>
+              <!-- Selection Stats (grid layout in toolbar) -->
+              <div class="toolbar-section selection-stats-box" v-if="selectionStats">
+                <div class="stats-header">📊 框选统计</div>
+                <div class="stats-grid">
+                  <span class="stat-label">索引</span><span class="stat-value">{{ selectionStats.start }} - {{ selectionStats.end }}</span>
+                  <span class="stat-label">点数</span><span class="stat-value">{{ selectionStats.count }}</span>
+                  <span class="stat-label">范围</span><span class="stat-value">{{ formatNumber(selectionStats.minVal) }} ~ {{ formatNumber(selectionStats.maxVal) }}</span>
+                  <span class="stat-label">均值</span><span class="stat-value">{{ formatNumber(selectionStats.mean) }}</span>
+                  <span class="stat-label">标准差</span><span class="stat-value">{{ formatNumber(selectionStats.std) }}</span>
+                </div>
               </div>
             </div>
           </div>
+          
+          <!-- D3 Chart Container -->
+          <div id="maindiv"></div>
         </div>
       </main>
 
       <!-- Right Sidebar -->
       <aside class="sidebar right-sidebar" v-if="isChartMode">
-        <!-- 当前标注 -->
-        <div class="panel-section">
-          <h3 class="section-title">📌 当前标注</h3>
+        
+        <!-- 📝 标注工作区 -->
+        <div class="panel-section workspace-section">
+          <h3 class="section-title">📝 标注工作区</h3>
           
-          <!-- 已选标签 -->
+          <!-- 标签 -->
           <div class="form-group">
-            <label>已选标签</label>
-            <div class="selected-labels" v-if="currentAnnotation.label">
-              <span class="label-tag" :style="{ backgroundColor: currentAnnotation.label.color }">
-                {{ currentAnnotation.label.text }}
-              </span>
-              <button class="btn-icon-sm" @click="clearCurrentLabel" title="取消选择">×</button>
-            </div>
-            <div v-else class="no-label">请从左侧选择标签</div>
-          </div>
-          
-          <!-- 已框选数据段 -->
-          <div class="form-group">
-            <label>已框选数据段 ({{ currentAnnotation.segments.length }})</label>
-            <div class="segments-list" v-if="currentAnnotation.segments.length > 0">
-              <div v-for="(seg, idx) in currentAnnotation.segments" :key="idx" class="segment-item">
-                <span class="segment-range">{{ seg.start }} - {{ seg.end }}</span>
-                <span class="segment-count">({{ seg.count }}点)</span>
-                <button class="btn-icon-sm" @click="removeSegment(idx)">×</button>
+            <label>标签</label>
+            <div class="chart-labels-container" v-if="chartLabelStats.length > 0">
+              <div v-for="stat in chartLabelStats" :key="stat.text" 
+                   class="chart-label-tag" 
+                   :class="{ 'active': activeChartLabel === stat.text }"
+                   :style="{ backgroundColor: stat.color }"
+                   @click="selectChartLabel(stat)">
+                <span class="label-text">{{ stat.text }}</span>
+                <span class="label-count">({{ stat.count }})</span>
+                <button class="label-remove" @click.stop="clearLabelFromChart(stat.text)" title="清除">×</button>
               </div>
             </div>
-            <div v-else class="empty-message">请在图中框选数据</div>
+            <div v-else class="empty-message">← 左侧选择标签后在图中框选</div>
+          </div>
+          
+          <!-- 数据段（显示当前选中标签的段） -->
+          <div class="form-group" v-if="activeChartLabel">
+            <label>数据段 ({{ activeSegments.length }})</label>
+            <div class="segments-list" v-if="activeSegments.length > 0">
+              <div v-for="(seg, idx) in activeSegments" :key="idx" class="segment-item clickable" @click="navigateToSegment(seg)">
+                <span class="segment-range">{{ seg.start }} - {{ seg.end }}</span>
+                <span class="segment-count">({{ seg.count }}点)</span>
+                <button class="btn-icon-sm" @click.stop="removeSegmentByRange(seg)" title="删除">×</button>
+              </div>
+            </div>
+            <div v-else class="empty-message">该标签暂无数据段</div>
+          </div>
+          <div class="form-group" v-else-if="chartLabelStats.length > 0">
+            <label>数据段</label>
+            <div class="empty-message">↑ 点击标签查看数据段</div>
           </div>
           
           <!-- 问题和专家分析 -->
-          <div class="form-group">
+          <div class="form-group" v-if="activeChartLabel">
             <label>问题</label>
-            <textarea v-model="currentAnnotation.prompt" rows="2" placeholder="Supposing that..."></textarea>
+            <textarea v-model="currentAnnotation.prompt" rows="2" placeholder="描述发现的问题..."></textarea>
           </div>
-          <div class="form-group">
+          <div class="form-group" v-if="activeChartLabel">
             <label>专家分析</label>
-            <textarea v-model="currentAnnotation.expertOutput" rows="2" placeholder="Yes, the..."></textarea>
+            <textarea v-model="currentAnnotation.expertOutput" rows="2" placeholder="分析结论..."></textarea>
           </div>
           
-          <div class="form-actions">
-            <button class="btn btn-primary" @click="saveCurrentAnnotation" :disabled="!canSaveAnnotation">
+          <!-- 操作按钮 -->
+          <div class="form-actions" v-if="activeChartLabel">
+            <button class="btn btn-primary" @click="saveActiveLabel" :disabled="activeSegments.length === 0">
               {{ editingAnnotationIndex !== null ? '更新标注' : '保存标注' }}
             </button>
             <button class="btn" @click="resetCurrentAnnotation">重置</button>
           </div>
         </div>
 
-        <!-- 标注列表 -->
+        <!-- 📋 已保存标注 -->
         <div class="panel-section">
           <div class="section-header">
-            <h3 class="section-title">📋 标注列表 ({{ savedAnnotations.length }})</h3>
+            <h3 class="section-title">📋 已保存标注 ({{ savedAnnotations.length }})</h3>
             <button class="btn btn-sm btn-primary" @click="downloadAnnotations" :disabled="savedAnnotations.length === 0">下载</button>
           </div>
           <div class="annotation-list">
             <div v-for="(ann, idx) in savedAnnotations" :key="ann.id" class="annotation-item" :class="{ 'editing': editingAnnotationIndex === idx }">
               <div class="annotation-header">
-                <span class="label-tag" :style="{ backgroundColor: ann.label.color }">{{ ann.label.text }}</span>
+                <span class="label-tag clickable" :style="{ backgroundColor: ann.label.color }" @click="cycleAnnotationSegments(idx)" :title="'点击定位数据段'">{{ ann.label.text }}</span>
                 <span class="segment-summary">({{ ann.segments.length }}段)</span>
                 <div class="annotation-actions">
                   <button class="btn-icon-sm" @click="editAnnotation(idx)" title="编辑">✏️</button>
@@ -207,7 +234,7 @@
                 </div>
               </div>
               <div class="annotation-segments">
-                <span v-for="(seg, sidx) in ann.segments" :key="sidx" class="segment-badge">
+                <span v-for="(seg, sidx) in ann.segments" :key="sidx" class="segment-badge clickable" @click="navigateToAnnotationSegment(ann, sidx)">
                   {{ seg.start }}-{{ seg.end }}
                 </span>
               </div>
@@ -329,7 +356,8 @@
 import * as LabelerD3 from "@/assets/js/LabelerD3.js"
 const { DateTime } = require("luxon");
 
-const API_BASE = 'http://192.168.199.126:5000/api';
+// Use current hostname for API - supports dev (localhost) and remote access
+const API_BASE = `http://${window.location.hostname}:5000/api`;
 var plottingApp = {};
 // Expose to window for D3 access and debugging
 window.plottingApp = plottingApp;
@@ -370,8 +398,11 @@ export default {
         prompt: '',
         expertOutput: ''
       },
+      annotationVersion: 0,    // Increment to force reactivity updates
       savedAnnotations: [],    // Array of completed annotations
       selectionRange: '未选择',
+      selectionStats: null,    // Current selection statistics
+      chartDataVersion: 0,  // Track chart data changes for reactivity
       
       // UI state
       toast: { show: false, message: '', type: 'info' },
@@ -402,7 +433,10 @@ export default {
       labelSettingsTab: 'overall',
       
       // Editing state: index of annotation being edited, null if creating new
-      editingAnnotationIndex: null
+      editingAnnotationIndex: null,
+      
+      // Track segment cycle position for each annotation (key: annotation index)
+      annotationCyclePositions: {}
     }
   },
   computed: {
@@ -444,6 +478,42 @@ export default {
         }
       });
       return colors;
+    },
+    // Calculate chart label statistics from plottingApp.allData
+    chartLabelStats() {
+      // Touch chartDataVersion to make this reactive
+      const _version = this.chartDataVersion;
+      if (!window.plottingApp || !window.plottingApp.allData) return [];
+      
+      const stats = {};
+      window.plottingApp.allData.forEach(d => {
+        if (d.label && d.label !== '') {
+          if (!stats[d.label]) {
+            stats[d.label] = { text: d.label, count: 0, color: null };
+          }
+          stats[d.label].count++;
+        }
+      });
+      
+      // Associate colors from labelList
+      return Object.values(stats).map(s => {
+        const labelEntry = window.plottingApp.labelList?.find(l => l.name === s.text);
+        s.color = labelEntry?.color || '#7E4C64';
+        return s;
+      });
+    },
+    // Computed proxy for segments with forced reactivity
+    segmentsList() {
+      // Touch annotationVersion to ensure reactivity
+      const _v = this.annotationVersion;
+      return this.currentAnnotation.segments || [];
+    },
+    segmentsCount() {
+      return this.segmentsList.length;
+    },
+    annotationLabel() {
+      const _v = this.annotationVersion;
+      return this.currentAnnotation.label;
     }
   },
   watch: {
@@ -452,6 +522,10 @@ export default {
     }
   },
   mounted() {
+    // Expose Vue instance to window for D3 direct access
+    window.vueApp = this;
+    console.log('Vue instance exposed to window.vueApp');
+    
     this.loadLabels();
     this.loadCurrentPath();
   },
@@ -594,10 +668,12 @@ export default {
         // Setup selectors in DOM
         this.setupSelectors(seriesList);
         
-        // Map labels to colors
+        // Map labels to colors (but don't auto-select any label)
         this.optionsList = plottingApp.labelList.map(l => ({ name: l, color: this.getNextColor() }));
         plottingApp.labelList = this.optionsList;
-        this.selectedLabel = this.optionsList[0].name;
+        // Don't auto-select a label - user must explicitly choose one
+        this.selectedLabel = '';
+        plottingApp.selectedLabel = '';
         
         // Draw chart with slight delay to ensure container has width
         setTimeout(() => {
@@ -636,13 +712,19 @@ export default {
     
     // Label Methods - Single select for local labels
     toggleLocalLabel(label, categoryId) {
+      console.log('=== toggleLocalLabel called ===');
+      console.log('  - label:', label);
+      console.log('  - categoryId:', categoryId);
+      console.log('  - currentAnnotation before:', JSON.stringify(this.currentAnnotation));
+      
       // Get label color
       const labelColor = this.getLabelColor(categoryId, label.id);
       
       // Check if clicking same label
       if (this.currentAnnotation.label && this.currentAnnotation.label.id === label.id) {
-        // Clicked same label - deselect
-        this.currentAnnotation.label = null;
+        // Clicked same label - deselect - use $set for reactivity
+        console.log('  - Deselecting same label');
+        this.$set(this.currentAnnotation, 'label', null);
         this.selectedLocalLabels = [];
         if (plottingApp) {
           plottingApp.selectedLabel = '';
@@ -657,13 +739,16 @@ export default {
           categoryId,
           categoryName: this.localCategories[categoryId]?.name
         };
-        this.currentAnnotation.label = labelObj;
+        console.log('  - Setting new label:', labelObj);
+        // Use $set for reactivity
+        this.$set(this.currentAnnotation, 'label', labelObj);
         this.selectedLocalLabels = [labelObj];  // Keep for backward compatibility
         
         // Update D3 chart with this color for brush labeling
         if (plottingApp) {
           plottingApp.selectedLabel = label.text;
           plottingApp.labelColor = labelColor;
+          console.log('  - Set plottingApp.selectedLabel to:', label.text);
           
           // Update labelList
           if (!plottingApp.labelList) plottingApp.labelList = [];
@@ -675,6 +760,11 @@ export default {
           }
         }
       }
+      
+      // Increment version to trigger computed property updates
+      this.annotationVersion++;
+      console.log('  - currentAnnotation after:', JSON.stringify(this.currentAnnotation));
+      console.log('  - plottingApp.selectedLabel:', plottingApp?.selectedLabel);
     },
     
     isLocalLabelSelected(labelId) {
@@ -729,28 +819,59 @@ export default {
     saveCurrentAnnotation() {
       if (!this.canSaveAnnotation) return;
       
-      const annotation = {
-        id: this.editingAnnotationIndex !== null 
-          ? this.savedAnnotations[this.editingAnnotationIndex].id 
-          : 'ann_' + Date.now(),
-        label: { ...this.currentAnnotation.label },
-        segments: [...this.currentAnnotation.segments],
-        prompt: this.currentAnnotation.prompt,
-        expertOutput: this.currentAnnotation.expertOutput,
-        createdAt: this.editingAnnotationIndex !== null 
-          ? this.savedAnnotations[this.editingAnnotationIndex].createdAt 
-          : new Date().toISOString(),
-        updatedAt: new Date().toISOString()
-      };
+      // Group segments by their individual labels (using label.id as key)
+      const segmentsByLabel = {};
+      this.currentAnnotation.segments.forEach(seg => {
+        const labelId = seg.label?.id || 'unknown';
+        if (!segmentsByLabel[labelId]) {
+          segmentsByLabel[labelId] = {
+            label: seg.label,
+            segments: []
+          };
+        }
+        // Store segment without the embedded label (avoid duplication in saved data)
+        const { label: _, ...segmentData } = seg;
+        segmentsByLabel[labelId].segments.push(segmentData);
+      });
       
-      if (this.editingAnnotationIndex !== null) {
-        // Update existing annotation
-        this.$set(this.savedAnnotations, this.editingAnnotationIndex, annotation);
-        this.showToast('标注已更新', 'success');
-      } else {
-        // Add new annotation
-        this.savedAnnotations.push(annotation);
-        this.showToast('标注已保存', 'success');
+      // Create one annotation per unique label
+      const labelIds = Object.keys(segmentsByLabel);
+      let savedCount = 0;
+      
+      labelIds.forEach(labelId => {
+        const group = segmentsByLabel[labelId];
+        if (!group.label) return; // Skip if no label
+        
+        const annotation = {
+          id: 'ann_' + Date.now() + '_' + labelId,
+          label: { ...group.label },
+          segments: group.segments,
+          prompt: this.currentAnnotation.prompt,
+          expertOutput: this.currentAnnotation.expertOutput,
+          createdAt: new Date().toISOString(),
+          updatedAt: new Date().toISOString()
+        };
+        
+        // Check if we're editing an existing annotation with this label
+        const existingIdx = this.savedAnnotations.findIndex(
+          ann => ann.label.id === labelId
+        );
+        
+        if (existingIdx !== -1) {
+          // Merge segments into existing annotation
+          const existing = this.savedAnnotations[existingIdx];
+          annotation.id = existing.id;
+          annotation.createdAt = existing.createdAt;
+          annotation.segments = [...existing.segments, ...group.segments];
+          this.$set(this.savedAnnotations, existingIdx, annotation);
+        } else {
+          this.savedAnnotations.push(annotation);
+        }
+        savedCount++;
+      });
+      
+      if (savedCount > 0) {
+        this.showToast(`已保存 ${savedCount} 个标签的标注`, 'success');
       }
       this.resetCurrentAnnotation();
     },
@@ -764,10 +885,216 @@ export default {
       };
       this.selectedLocalLabels = [];
       this.selectionRange = '未选择';
+      this.selectionStats = null;  // Clear selection stats
       this.editingAnnotationIndex = null;  // Reset editing state
       if (plottingApp) {
         plottingApp.selectedLabel = '';
         plottingApp.labelColor = null;
+      }
+    },
+    
+    // Load chart label (quick annotation) into edit area
+    loadChartLabelToEdit(stat) {
+      if (!stat || !stat.text || !plottingApp || !plottingApp.allData) return;
+      
+      // Find all points with this label and group into contiguous segments
+      const labeledPoints = plottingApp.allData.filter(d => d.label === stat.text);
+      if (labeledPoints.length === 0) return;
+      
+      // Sort by index
+      const indices = labeledPoints.map(d => parseInt(d.id)).sort((a, b) => a - b);
+      
+      // Group into contiguous segments
+      const segments = [];
+      let segStart = indices[0];
+      let segEnd = indices[0];
+      
+      for (let i = 1; i < indices.length; i++) {
+        if (indices[i] === segEnd + 1) {
+          segEnd = indices[i];
+        } else {
+          // Save current segment
+          segments.push({
+            start: segStart,
+            end: segEnd,
+            count: segEnd - segStart + 1
+          });
+          segStart = indices[i];
+          segEnd = indices[i];
+        }
+      }
+      // Don't forget the last segment
+      segments.push({
+        start: segStart,
+        end: segEnd,
+        count: segEnd - segStart + 1
+      });
+      
+      // Find the label info from labels config (to get color and category)
+      let labelObj = { id: stat.text, text: stat.text, color: stat.color };
+      const localCats = this.labels.local_change || {};
+      for (const [catId, cat] of Object.entries(localCats)) {
+        const foundLabel = cat.labels?.find(l => l.text === stat.text);
+        if (foundLabel) {
+          labelObj = {
+            id: foundLabel.id,
+            text: foundLabel.text,
+            color: stat.color,
+            categoryId: catId,
+            categoryName: cat.name
+          };
+          break;
+        }
+      }
+      
+      // Set current annotation
+      this.currentAnnotation = {
+        label: labelObj,
+        segments: segments,
+        prompt: '',
+        expertOutput: ''
+      };
+      this.selectedLocalLabels = [labelObj];
+      this.annotationVersion++;
+      
+      // Update plottingApp
+      if (plottingApp) {
+        plottingApp.selectedLabel = stat.text;
+        plottingApp.labelColor = stat.color;
+      }
+      
+      this.showToast(`已加载"${stat.text}"的 ${segments.length} 个数据段到编辑区`, 'success');
+    },
+    
+    // Navigate chart to show a specific segment
+    navigateToSegment(seg) {
+      if (!seg || seg.start === undefined || seg.end === undefined) return;
+      this.panChartToRange(seg.start, seg.end);
+      this.showToast(`定位到: ${seg.start} - ${seg.end}`, 'info');
+    },
+    
+    // Navigate to a specific segment in a saved annotation
+    navigateToAnnotationSegment(ann, segIdx) {
+      if (!ann || !ann.segments || !ann.segments[segIdx]) return;
+      const seg = ann.segments[segIdx];
+      this.panChartToRange(seg.start, seg.end);
+      this.showToast(`定位到 ${ann.label.text}: ${seg.start} - ${seg.end}`, 'info');
+    },
+    
+    // Cycle through annotation segments when clicking on the label tag
+    cycleAnnotationSegments(annIdx) {
+      const ann = this.savedAnnotations[annIdx];
+      if (!ann || !ann.segments || ann.segments.length === 0) return;
+      
+      // Get current position for this annotation
+      let currentPos = this.annotationCyclePositions[annIdx] || 0;
+      
+      // Navigate to current segment
+      const seg = ann.segments[currentPos];
+      this.panChartToRange(seg.start, seg.end);
+      this.showToast(`${ann.label.text}: 段 ${currentPos + 1}/${ann.segments.length} (${seg.start}-${seg.end})`, 'info');
+      
+      // Increment position for next click (cycle back to 0)
+      this.$set(this.annotationCyclePositions, annIdx, (currentPos + 1) % ann.segments.length);
+    },
+    
+    // Pan chart to show a specific range
+    panChartToRange(start, end) {
+      if (!plottingApp || !plottingApp.plot || !plottingApp.context_brush) {
+        console.warn('Chart not ready for panning');
+        return;
+      }
+      
+      // Calculate padding (show some context around the segment)
+      const segLen = end - start;
+      const padding = Math.max(segLen * 0.5, 20);  // At least 20 points padding
+      const newStart = Math.max(0, start - padding);
+      const newEnd = end + padding;
+      
+      // Update context brush to pan main chart
+      try {
+        if (plottingApp.context_xscale && plottingApp.plot.context_brush) {
+          const newExtent = [newStart, newEnd].map(d => plottingApp.context_xscale(d));
+          plottingApp.plot.context_brush.call(plottingApp.context_brush.move, newExtent);
+        }
+      } catch (e) {
+        console.error('Error panning chart:', e);
+      }
+    },
+    
+    // Navigate to points with a specific label on the chart
+    navigateToLabelPoints(labelText) {
+      if (!plottingApp || !plottingApp.allData || !labelText) return;
+      
+      // Find all points with this label
+      const labeledPoints = plottingApp.allData
+        .map((d, idx) => ({ ...d, idx }))
+        .filter(d => d.label === labelText);
+      
+      if (labeledPoints.length === 0) {
+        this.showToast(`未找到 "${labelText}" 的标注点`, 'warning');
+        return;
+      }
+      
+      // Find the range of labeled points
+      const indices = labeledPoints.map(d => d.idx);
+      const minIdx = Math.min(...indices);
+      const maxIdx = Math.max(...indices);
+      
+      this.panChartToRange(minIdx, maxIdx);
+      this.showToast(`定位到 ${labelText}: ${minIdx}-${maxIdx} (${labeledPoints.length}点)`, 'info');
+    },
+    
+    // Clear a specific label from the chart
+    clearLabelFromChart(labelText) {
+      if (!plottingApp || !plottingApp.allData || !labelText) return;
+      
+      let clearedCount = 0;
+      plottingApp.allData.forEach(d => {
+        if (d.label === labelText) {
+          d.label = '';
+          clearedCount++;
+        }
+      });
+            if (clearedCount > 0) {
+          // Refresh chart display - main and context (thumbnail)
+          const updatePointStyle = function(d) {
+            if (d.label) {
+              const labelInfo = plottingApp.labelList?.find(l => l.name === d.label);
+              const color = labelInfo?.color || '#7E4C64';
+              return `fill: ${color}; stroke: ${color}; opacity: 0.75;`;
+            }
+            return 'fill: black; stroke: none; opacity: 1;';
+          };
+          if (typeof plottingApp.main !== 'undefined' && plottingApp.main) {
+            plottingApp.main.selectAll('.point').attr('style', updatePointStyle);
+          }
+          // Also update context (thumbnail) points
+          if (typeof plottingApp.context !== 'undefined' && plottingApp.context) {
+            plottingApp.context.selectAll('.point').attr('style', updatePointStyle);
+          }
+        
+        // Also remove segments with this label from currentAnnotation
+        const originalLength = this.currentAnnotation.segments.length;
+        this.currentAnnotation.segments = this.currentAnnotation.segments.filter(
+          seg => seg.label?.text !== labelText
+        );
+        const removedSegments = originalLength - this.currentAnnotation.segments.length;
+        
+        // If current label matches, clear it too
+        if (this.currentAnnotation.label?.text === labelText) {
+          this.currentAnnotation.label = null;
+        }
+        
+        // Trigger reactivity update
+        this.chartDataVersion++;
+        this.annotationVersion++;
+        
+        let message = `已清除 ${labelText} 的 ${clearedCount} 个标注点`;
+        if (removedSegments > 0) {
+          message += `，${removedSegments} 个数据段`;
+        }
+        this.showToast(message, 'success');
       }
     },
     
@@ -803,7 +1130,37 @@ export default {
     },
     
     removeSegment(idx) {
+      const segment = this.currentAnnotation.segments[idx];
+      if (segment && plottingApp && plottingApp.allData) {
+        // Clear labels for points in this segment
+        const labelText = segment.label?.text || this.currentAnnotation.label?.text;
+        if (labelText) {
+          plottingApp.allData.forEach(d => {
+            const dIdx = parseInt(d.id);
+            if (dIdx >= segment.start && dIdx <= segment.end && d.label === labelText) {
+              d.label = '';
+            }
+          });
+          // Refresh chart display - main and context
+          const updatePointStyle = function(d) {
+            if (d.label) {
+              const labelInfo = plottingApp.labelList?.find(l => l.name === d.label);
+              const color = labelInfo?.color || '#7E4C64';
+              return `fill: ${color}; stroke: ${color}; opacity: 0.75;`;
+            }
+            return 'fill: black; stroke: none; opacity: 1;';
+          };
+          if (plottingApp.main) {
+            plottingApp.main.selectAll('.point').attr('style', updatePointStyle);
+          }
+          if (plottingApp.context) {
+            plottingApp.context.selectAll('.point').attr('style', updatePointStyle);
+          }
+        }
+        this.chartDataVersion++;
+      }
       this.currentAnnotation.segments.splice(idx, 1);
+      this.annotationVersion++;
     },
     
     deleteAnnotation(idx) {
@@ -888,6 +1245,8 @@ export default {
         plottingApp.selectedLabel = '';
         plottingApp.labelColor = null;
       }
+      // Trigger chartLabelStats reactivity update
+      this.chartDataVersion++;
       this.showToast('已清除图上所有标注点', 'success');
     },
     
@@ -970,6 +1329,14 @@ export default {
       this.hoverinfo = { ...plottingApp.hoverinfo };
     },
     
+    resetChartView() {
+      // Reset chart view to full extent
+      if (plottingApp && typeof plottingApp.resetView === 'function') {
+        plottingApp.resetView();
+        this.showToast('视图已重置', 'info');
+      }
+    },
+    
     triggerReplot() {
       // Trigger chart replot
     },
@@ -986,35 +1353,134 @@ export default {
     
     updateSelectionRange() {
       // Called by D3 when brush selection changes - add segment to current annotation
-      console.log('updateSelectionRange called, selection:', plottingApp.selection);
-      console.log('currentAnnotation.label:', this.currentAnnotation.label);
+      console.log('=== updateSelectionRange called ===');
       
-      if (plottingApp.selection) {
-        const segment = {
-          start: plottingApp.selection.start,
-          end: plottingApp.selection.end,
-          count: plottingApp.selection.count || (plottingApp.selection.end - plottingApp.selection.start + 1)
-        };
-        
-        // Add to segments array if we have a label selected
-        if (this.currentAnnotation.label) {
-          // Use Vue.set or push with reactivity
-          this.currentAnnotation.segments.push(segment);
-          // Force reactivity update
-          this.currentAnnotation = { ...this.currentAnnotation, segments: [...this.currentAnnotation.segments] };
-          this.selectionRange = `已添加 ${this.currentAnnotation.segments.length} 段`;
-          console.log('Segment added:', segment, 'Total segments:', this.currentAnnotation.segments.length);
-          this.showToast(`已添加数据段: ${segment.start}-${segment.end}`, 'success');
-        } else {
-          this.selectionRange = `${segment.start} - ${segment.end} (${segment.count}点) - 请先选择标签`;
-          this.showToast('请先选择一个标签', 'warning');
-        }
-      } else {
+      if (!plottingApp.selection) {
         console.log('No selection data from plottingApp');
+        return;
       }
+      
+      console.log('plottingApp.selection:', plottingApp.selection);
+      console.log('plottingApp.selectedLabel:', plottingApp.selectedLabel);
+      console.log('currentAnnotation.label before:', this.currentAnnotation.label);
+      
+      // Store selection stats for display - use $set to ensure reactivity
+      this.$set(this, 'selectionStats', {
+        start: plottingApp.selection.start,
+        end: plottingApp.selection.end,
+        count: plottingApp.selection.count,
+        minVal: plottingApp.selection.minVal,
+        maxVal: plottingApp.selection.maxVal,
+        mean: plottingApp.selection.mean,
+        std: plottingApp.selection.std,
+        range: plottingApp.selection.range
+      });
+      
+      console.log('selectionStats set to:', this.selectionStats);
+      
+      // Determine the label to use - current label from UI or from plottingApp
+      let labelToUse = this.currentAnnotation.label;
+      if (!labelToUse && plottingApp.selectedLabel) {
+        console.log('Syncing label from plottingApp:', plottingApp.selectedLabel);
+        labelToUse = this.findLabelByText(plottingApp.selectedLabel);
+        console.log('Found label:', labelToUse);
+      }
+      
+      if (!labelToUse) {
+        console.log('No label selected');
+        this.selectionRange = `${plottingApp.selection.start} - ${plottingApp.selection.end} (${plottingApp.selection.count}点) - 请先选择标签`;
+        this.showToast('请先选择一个标签', 'warning');
+        return;
+      }
+      
+      // Create segment object WITH its label info - each segment remembers which label was active
+      const segment = {
+        start: plottingApp.selection.start,
+        end: plottingApp.selection.end,
+        count: plottingApp.selection.count,
+        minVal: plottingApp.selection.minVal,
+        maxVal: plottingApp.selection.maxVal,
+        mean: plottingApp.selection.mean,
+        label: { ...labelToUse }  // Store the label with the segment!
+      };
+      
+      // Create new segments array with the new segment using $set for reactivity
+      const newSegments = [...this.currentAnnotation.segments, segment];
+      
+      // Use $set for all nested properties to ensure full reactivity
+      // Keep currentAnnotation.label as the last selected label (for UI display)
+      this.$set(this, 'currentAnnotation', {
+        label: labelToUse,
+        segments: newSegments,
+        prompt: this.currentAnnotation.prompt || '',
+        expertOutput: this.currentAnnotation.expertOutput || ''
+      });
+      
+      // Increment version to trigger computed property updates
+      this.annotationVersion++;
+      
+      console.log('NEW segment with label:', JSON.stringify(segment));
+      console.log('Total segments:', newSegments.length);
+      this.selectionRange = `已添加 ${newSegments.length} 段`;
+      this.showToast(`已添加数据段: ${segment.start}-${segment.end} (${labelToUse.text})`, 'success');
+      
+      // Trigger chartLabelStats reactivity update
+      this.chartDataVersion++;
+      
+      // Force Vue to re-render after D3 hidden button trigger
+      this.$nextTick(() => {
+        this.$forceUpdate();
+        console.log('Vue forceUpdate triggered');
+      });
+    },
+    
+    // Helper to find label by text
+    findLabelByText(labelText) {
+      console.log('findLabelByText called with:', labelText);
+      console.log('  - labels.local_change:', this.labels.local_change);
+      const localCats = this.labels.local_change || {};
+      for (const [catId, cat] of Object.entries(localCats)) {
+        console.log('  - Checking category:', catId, cat);
+        if (cat.labels) {
+          const label = cat.labels.find(l => l.text === labelText);
+          if (label) {
+            console.log('  - Found label:', label);
+            return {
+              id: label.id,
+              text: label.text,
+              color: label.color || this.getCategoryColor(catId),
+              categoryId: catId,
+              categoryName: cat.name
+            };
+          }
+        }
+      }
+      console.log('  - Label not found, creating fallback');
+      // Fallback: create label from plottingApp if available
+      if (plottingApp && plottingApp.labelColor) {
+        return {
+          id: 'fallback_' + Date.now(),
+          text: labelText,
+          color: plottingApp.labelColor,
+          categoryId: 'unknown',
+          categoryName: '自定义'
+        };
+      }
+      return null;
     },
     
     // Utilities
+    getSelectedLabelColor() {
+      if (!this.selectedLabel) return '#7E4C64';
+      const label = this.optionsList.find(l => l.name === this.selectedLabel);
+      return label?.color || '#7E4C64';
+    },
+    
+    formatNumber(val) {
+      if (val === null || val === undefined) return '-';
+      return val.toFixed(4);
+    },
+    
     showToast(message, type = 'info') {
       this.toast = { show: true, message, type };
       setTimeout(() => { this.toast.show = false; }, 3000);
@@ -1148,8 +1614,8 @@ export default {
 
 <style>
 /* Global D3 Styles */
-svg { font: 10px sans-serif; display: block; margin: auto; overflow: visible; }
-#maindiv { width: 100%; text-align: left; }
+svg { font: 10px sans-serif; display: block; margin: auto; overflow: visible; user-select: none; -webkit-user-select: none; }
+#maindiv { width: 100%; text-align: left; user-select: none; -webkit-user-select: none; }
 .line { fill: none; stroke: black; stroke-width: 1.5px; clip-path: url(#clip); pointer-events: none; }
 .point { fill: black; stroke: none; clip-path: url(#clip); }
 .axis path, .axis line { fill: none; stroke: #000; shape-rendering: crispEdges; }
@@ -1240,13 +1706,15 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 
 /* Toolbar (instructions + actions) */
 .toolbar { display: flex; flex-direction: column; gap: 8px; margin-top: 8px; font-size: 0.8125rem; }
-.toolbar-row { display: flex; gap: 12px; align-items: center; flex-wrap: wrap; }
-.toolbar-section { padding: 8px 12px; background: #f8f8f8; border-radius: 6px; }
+.toolbar-row { display: flex; gap: 12px; align-items: center; flex-wrap: nowrap; }
+.toolbar-section { padding: 8px 12px; background: #f8f8f8; border-radius: 6px; flex-shrink: 0; }
 .toolbar-section.instr { line-height: 1.4; }
 .toolbar-section.instr.compact { padding: 6px 10px; }
-.toolbar-section.selectors { display: flex; gap: 16px; }
-.toolbar-section.selectors select { margin-left: 8px; }
-.toolbar-section.actions-inline { display: flex; gap: 8px; margin-left: auto; }
+.toolbar-section.selectors { display: flex; flex-direction: column; gap: 6px; flex-shrink: 0; }
+.toolbar-section.selectors select { margin-left: 8px; min-width: 100px; }
+.toolbar-section.actions-inline { display: flex; gap: 8px; margin-left: auto; flex-shrink: 0; }
+.selector-item { white-space: nowrap; display: flex; align-items: center; gap: 8px; }
+.selector-item label { min-width: 60px; font-weight: 500; }
 
 /* File Tabs */
 .file-tabs { display: flex; gap: 0; margin-bottom: 8px; border-bottom: 1px solid #eee; }
@@ -1281,6 +1749,7 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .segment-summary { font-size: 0.75rem; color: #888; }
 .segment-badge { font-size: 0.7rem; color: #666; padding: 2px 6px; border-radius: 4px; background: #e5e7eb; }
 .label-tag { font-size: 0.7rem; color: white; padding: 2px 6px; border-radius: 4px; }
+.label-count { font-size: 0.65rem; opacity: 0.9; margin-left: 2px; }
 .selected-labels { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; min-height: 28px; padding: 6px 8px; border: 1px solid #eee; border-radius: 6px; }
 .no-label { color: #aaa; font-size: 0.8125rem; }
 .annotation-form { border-top: 1px solid #eee; padding-top: 16px; }
@@ -1295,6 +1764,13 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .segment-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: white; border-radius: 4px; font-size: 0.8125rem; }
 .segment-range { font-family: monospace; color: #7E4C64; font-weight: 500; }
 .segment-count { color: #888; font-size: 0.75rem; }
+
+/* Selection Stats */
+.selection-stats { background: #f8f8f8; border-radius: 6px; padding: 10px; font-size: 0.8125rem; }
+.stat-row { display: flex; justify-content: space-between; padding: 3px 0; border-bottom: 1px solid #eee; }
+.stat-row:last-child { border-bottom: none; }
+.stat-label { color: #666; }
+.stat-value { font-family: monospace; color: #7E4C64; font-weight: 500; }
 
 /* Toast */
 .toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); padding: 12px 24px; background: #333; color: white; border-radius: 8px; z-index: 9999; }
@@ -1347,4 +1823,150 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .input-xs { padding: 4px 8px; font-size: 0.8125rem; }
 
 .add-category-btn { margin-top: 8px; }
+
+/* Floating Selection Stats Panel */
+.selection-stats-panel {
+  position: absolute;
+  right: 20px;
+  top: 50px;
+  z-index: 10;
+  background: white;
+  border: 1px solid #ddd;
+  border-radius: 8px;
+  padding: 10px 14px;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+  min-width: 200px;
+}
+.stats-title {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: #7E4C64;
+  margin-bottom: 8px;
+  border-bottom: 1px solid #eee;
+  padding-bottom: 4px;
+}
+.stats-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 4px 12px;
+  font-size: 0.75rem;
+}
+.stats-item {
+  color: #555;
+}
+.stats-item b {
+  color: #888;
+  font-weight: 500;
+}
+
+/* Clickable elements */
+.clickable {
+  cursor: pointer;
+  transition: all 0.15s ease;
+}
+.clickable:hover {
+  opacity: 0.85;
+  transform: translateX(2px);
+}
+.segment-badge.clickable:hover {
+  background: #d1d5db;
+}
+.label-tag.clickable:hover {
+  filter: brightness(1.1);
+}
+
+/* Improved annotation list - larger area */
+.annotation-list { 
+  max-height: 400px; 
+  overflow-y: auto; 
+  margin-bottom: 8px; 
+}
+
+/* Fixed Stats Section in Sidebar */
+.stats-section {
+  background: #f0f8ff;
+  border: 1px solid #e0e8f0;
+  border-radius: 8px;
+  padding: 10px;
+  margin-bottom: 12px;
+}
+.stats-grid-fixed {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  font-size: 0.8125rem;
+}
+.stat-row-inline {
+  display: flex;
+  justify-content: space-between;
+  padding: 3px 0;
+  border-bottom: 1px solid #e0e8f0;
+}
+.stat-row-inline:last-child {
+  border-bottom: none;
+}
+
+/* Interactive Label Tags (with remove button) */
+.label-tag-interactive {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  font-size: 0.7rem;
+  color: white;
+  padding: 2px 4px 2px 8px;
+  border-radius: 4px;
+  margin: 2px;
+}
+.tag-content {
+  cursor: pointer;
+}
+.tag-content:hover {
+  opacity: 0.9;
+}
+.tag-remove {
+  background: rgba(255,255,255,0.3);
+  border: none;
+  color: white;
+  font-size: 0.85rem;
+  cursor: pointer;
+  padding: 0 4px;
+  margin-left: 2px;
+  border-radius: 2px;
+  line-height: 1;
+}
+.tag-remove:hover {
+  background: rgba(255,255,255,0.5);
+}
+
+/* Selection Stats Box (clean grid layout) */
+.selection-stats-box {
+  background: #f8f4f6;
+  border: 1px solid #e8dce3;
+  border-radius: 6px;
+  padding: 8px 14px;
+  margin-left: auto;
+  font-size: 0.75rem;
+}
+.selection-stats-box .stats-header {
+  font-weight: 600;
+  color: #7E4C64;
+  margin-bottom: 6px;
+  font-size: 0.8rem;
+}
+.selection-stats-box .stats-grid {
+  display: grid;
+  grid-template-columns: auto 1fr auto 1fr;
+  gap: 4px 12px;
+  align-items: center;
+}
+.selection-stats-box .stat-label {
+  color: #888;
+  text-align: right;
+}
+.selection-stats-box .stat-value {
+  color: #7E4C64;
+  font-family: 'SF Mono', 'Monaco', 'Consolas', monospace;
+  font-weight: 500;
+  white-space: nowrap;
+}
 </style>

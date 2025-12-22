@@ -6,7 +6,9 @@ from datetime import datetime
 from flask import Flask, jsonify, request, send_from_directory
 from flask_cors import CORS
 import pandas as pd
+import numpy as np
 from pathlib import Path
+from tsdownsample import M4Downsampler
 
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
 CORS(app)
@@ -154,7 +156,7 @@ def get_files():
 
 @app.route('/api/data/<filename>', methods=['GET'])
 def get_data(filename):
-    """Read CSV or Excel file data with improved column detection and NaN handling"""
+    """Read CSV or Excel file data with smart column detection and M4 downsampling"""
     try:
         filepath = os.path.join(CURRENT_DATA_PATH, filename)
         if not os.path.exists(filepath):
@@ -168,116 +170,128 @@ def get_data(filename):
         else:
             return jsonify({'success': False, 'error': 'Unsupported file format'}), 400
         
-        # Replace NaN with None for JSON compatibility
-        df = df.where(pd.notna(df), None)
-        
+        original_len = len(df)
         columns = df.columns.tolist()
         
-        # Auto-detect time column (check multiple common names)
+        # ============ Smart Column Detection (by data type) ============
         time_col = None
-        time_candidates = ['time', 'timestamp', 'datetime', 'date', '时间', '日期']
-        for col in columns:
-            if col.lower() in time_candidates:
-                time_col = col
-                break
-        
-        # Auto-detect value column
         val_col = None
-        val_candidates = ['value', 'val', 'values', '值', '数值']
-        for col in columns:
-            if col.lower() in val_candidates:
-                val_col = col
-                break
-        
-        # Auto-detect series column
         series_col = None
-        series_candidates = ['series', 'channel', '序列', '通道', 'category']
-        for col in columns:
-            if col.lower() in series_candidates:
-                series_col = col
-                break
-        
-        # Auto-detect label column
         label_col = None
-        label_candidates = ['label', 'labels', '标签']
+        
         for col in columns:
-            if col.lower() in label_candidates:
-                label_col = col
-                break
+            # Skip unnamed/index columns
+            if col == '' or str(col).startswith('Unnamed'):
+                continue
+            
+            # Detect datetime column
+            if time_col is None:
+                if pd.api.types.is_datetime64_any_dtype(df[col]):
+                    time_col = col
+                elif df[col].dtype == 'object':
+                    # Try parsing first few non-null values as datetime
+                    sample = df[col].dropna().head(5)
+                    if len(sample) > 0:
+                        try:
+                            pd.to_datetime(sample, errors='raise')
+                            time_col = col
+                        except:
+                            pass
+            
+            # Detect numeric columns for value
+            if pd.api.types.is_numeric_dtype(df[col]):
+                if val_col is None:
+                    val_col = col
+            
+            # Detect string columns that might be series/label
+            elif df[col].dtype == 'object' and col != time_col:
+                unique_count = df[col].nunique()
+                if unique_count <= 10 and series_col is None:
+                    series_col = col
+                elif label_col is None:
+                    label_col = col
         
-        # Fallback: if no time column found, we'll use index
-        use_index_as_time = time_col is None
-        
-        # Fallback: if no value column, use first numeric column
-        if val_col is None:
-            for col in columns:
-                if col != time_col and col != series_col and col != label_col:
-                    if df[col].dtype in ['float64', 'int64', 'float32', 'int32']:
-                        val_col = col
-                        break
-        
-        # If still no value column, use second column or first if only one
+        # Fallback: use second column as value if not detected
         if val_col is None and len(columns) >= 2:
-            val_col = columns[1] if columns[0] == time_col else columns[0]
-        elif val_col is None and len(columns) == 1:
-            val_col = columns[0]
-            use_index_as_time = True
+            for col in columns:
+                if col != time_col and not str(col).startswith('Unnamed'):
+                    val_col = col
+                    break
         
-        # Build data array with proper NaN handling
+        # Fallback: use first column as value for single-column files
+        if val_col is None and len(columns) >= 1:
+            val_col = columns[-1]  # Use last column
+        
+        print(f"[Column Detection] time={time_col}, value={val_col}, series={series_col}, label={label_col}")
+        
+        # ============ Parse Time Column ============
+        use_index_mode = True  # Default to index mode
+        if time_col is not None:
+            try:
+                # Use pandas to parse datetime with timezone support
+                df[time_col] = pd.to_datetime(df[time_col], errors='coerce', utc=True)
+                valid_times = df[time_col].notna().sum()
+                if valid_times > 0:
+                    use_index_mode = False
+                    print(f"[Time Parse] Successfully parsed {valid_times}/{len(df)} time values")
+            except Exception as e:
+                print(f"[Time Parse] Failed: {e}, falling back to index mode")
+        
+        # ============ Prepare Value Array (handle NaN) ============
+        if val_col is not None:
+            df[val_col] = pd.to_numeric(df[val_col], errors='coerce').fillna(0.0)
+        else:
+            return jsonify({'success': False, 'error': 'No numeric value column found'}), 400
+        
+        # ============ M4 Downsampling (preserves min/max) ============
+        MAX_ROWS = 10000
+        downsampled = False
+        if original_len > MAX_ROWS:
+            try:
+                # Prepare arrays for M4 downsampler
+                x_arr = np.arange(original_len, dtype=np.float64)
+                y_arr = df[val_col].values.astype(np.float64)
+                
+                # M4 returns indices that preserve local min/max
+                downsampler = M4Downsampler()
+                indices = downsampler.downsample(x_arr, y_arr, n_out=MAX_ROWS)
+                
+                df = df.iloc[indices].reset_index(drop=True)
+                downsampled = True
+                print(f"[M4 Downsampling] {original_len} rows -> {len(df)} rows")
+            except Exception as e:
+                print(f"[M4 Downsampling] Error: {e}, using uniform sampling fallback")
+                step = original_len // MAX_ROWS
+                df = df.iloc[::step].reset_index(drop=True)
+                downsampled = True
+        
+        # ============ Build Response Data ============
         data = []
         series_set = set()
         
-        # Helper function to convert time to ISO format
-        def to_iso_time(time_val, idx):
-            if time_val is None:
-                return f"1970-01-01T00:00:{idx:02d}.000Z"
-            time_str = str(time_val)
-            # Try to parse various formats and convert to ISO
-            try:
-                from datetime import datetime
-                # Try common formats
-                for fmt in ['%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M:%S.%f', '%Y/%m/%d %H:%M:%S', 
-                           '%Y-%m-%dT%H:%M:%S', '%Y-%m-%dT%H:%M:%S.%f', '%Y-%m-%dT%H:%M:%S.%fZ']:
-                    try:
-                        dt = datetime.strptime(time_str, fmt)
-                        return dt.strftime('%Y-%m-%dT%H:%M:%S.000Z')
-                    except ValueError:
-                        continue
-                # Already ISO format or unrecognized - return as-is with T replacement
-                if 'T' not in time_str and ' ' in time_str:
-                    return time_str.replace(' ', 'T') + '.000Z'
-                return time_str
-            except Exception:
-                return time_str
-        
         for idx, row in df.iterrows():
-            # Handle time: use index if no time column, convert to ISO format
-            if use_index_as_time:
-                time_value = f"1970-01-01T00:00:{idx % 60:02d}.000Z"
-            else:
-                time_value = to_iso_time(row[time_col], idx)
+            # Use row index as x-axis value
+            index_value = idx
             
-            # Handle value: convert to float, default to 0 if NaN/None
-            try:
-                val_value = float(row[val_col]) if row[val_col] is not None else 0.0
-            except (ValueError, TypeError):
-                val_value = 0.0
+            # Value
+            val_value = float(row[val_col]) if pd.notna(row[val_col]) else 0.0
             
-            # Handle series
-            if series_col and row[series_col] is not None:
+            # Series
+            if series_col and pd.notna(row[series_col]):
                 series_value = str(row[series_col])
             else:
-                series_value = 'value'
+                series_value = val_col if val_col else 'value'
             series_set.add(series_value)
             
-            # Handle label: ensure it's a string or empty
-            if label_col and row[label_col] is not None:
+            # Label
+            if label_col and pd.notna(row[label_col]):
                 label_value = str(row[label_col])
             else:
                 label_value = ''
             
             data.append({
-                'time': time_value,
+                'idx': index_value,           # Numeric index for X-axis
+                'time': index_value,          # Keep as index for D3 compatibility
                 'val': val_value,
                 'series': series_value,
                 'label': label_value
@@ -290,7 +304,9 @@ def get_data(filename):
             'data': data,
             'seriesList': list(series_set),
             'labelList': [],
-            'hasTimeColumn': not use_index_as_time,
+            'useIndexMode': True,           # Always use index mode for X-axis
+            'originalLength': original_len,
+            'downsampled': downsampled,
             'detectedColumns': {
                 'time': time_col,
                 'value': val_col,
