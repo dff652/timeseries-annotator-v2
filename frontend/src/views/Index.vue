@@ -49,8 +49,8 @@
         <!-- 标签管理 -->
         <div class="panel-card">
           <div class="panel-card-header">
-            <span class="panel-card-title">🏷️ 标签管理</span>
-            <button class="btn-icon-sm" @click="showLabelSettings = true" title="设置">⚙️</button>
+            <span class="panel-card-title">🏷️ 标签列表</span>
+            <button class="btn btn-sm" @click="showLabelSettings = true">⚙️ 设置</button>
           </div>
           
           <!-- 整体属性 -->
@@ -184,46 +184,60 @@
           </div>
           
           <!-- 数据段索引（显示当前选中标签的段） -->
-          <div class="form-group" v-if="activeChartLabel">
-            <label>数据段索引 ({{ activeSegments.length }})</label>
-            <div class="segments-list" v-if="activeSegments.length > 0">
-              <div v-for="(seg, idx) in activeSegments" :key="idx" class="segment-item clickable" @click="navigateToSegment(seg)" :style="{ borderLeft: '3px solid ' + activeLabelColor }">
-                <span class="segment-range" :style="{ color: activeLabelColor }">{{ seg.start }} - {{ seg.end }}</span>
-                <span class="segment-count">({{ seg.count }}点)</span>
-                <button class="btn-icon-sm" @click.stop="removeSegmentByRange(seg)" title="删除">×</button>
+          <div class="form-group">
+            <label v-if="activeChartLabel">数据段索引 ({{ activeSegments.length }})</label>
+            <label v-else>数据段索引</label>
+            <div class="segment-index-area">
+              <div v-if="activeChartLabel && activeSegments.length > 0" class="segments-list">
+                <div v-for="(seg, idx) in activeSegments" :key="idx" class="segment-item clickable" @click="navigateToSegment(seg)" :style="{ borderLeft: '3px solid ' + activeLabelColor }">
+                  <span class="segment-range" :style="{ color: activeLabelColor }">{{ seg.start }} - {{ seg.end }}</span>
+                  <span class="segment-count">({{ seg.count }}点)</span>
+                  <button class="btn-icon-sm" @click.stop="removeSegmentByRange(seg)" title="删除">×</button>
+                </div>
               </div>
+              <div v-else-if="activeChartLabel" class="empty-placeholder">该标签暂无数据段</div>
+              <div v-else-if="chartLabelStats.length > 0" class="empty-placeholder">↑ 点击标签查看数据段</div>
+              <div v-else class="empty-placeholder">← 左侧选择标签后在图中框选</div>
             </div>
-            <div v-else class="empty-message">该标签暂无数据段</div>
-          </div>
-          <div class="form-group" v-else-if="chartLabelStats.length > 0">
-            <label>数据段索引</label>
-            <div class="empty-message">↑ 点击标签查看数据段</div>
           </div>
           
-          <!-- 问题和专家分析 -->
-          <div class="form-group" v-if="activeChartLabel">
+          <!-- 问题和分析结论 - 始终显示 -->
+          <div class="form-group">
             <label>问题</label>
-            <textarea v-model="currentAnnotation.prompt" rows="2" placeholder="描述发现的问题..."></textarea>
+            <textarea v-model="currentAnnotation.prompt" 
+                      rows="2" 
+                      placeholder="描述发现的问题..." 
+                      :disabled="!activeChartLabel"></textarea>
           </div>
-          <div class="form-group" v-if="activeChartLabel">
-            <label>专家分析</label>
-            <textarea v-model="currentAnnotation.expertOutput" rows="2" placeholder="分析结论..."></textarea>
+          <div class="form-group">
+            <label>分析结论</label>
+            <textarea v-model="currentAnnotation.expertOutput" 
+                      rows="2" 
+                      placeholder="分析结论..." 
+                      :disabled="!activeChartLabel"></textarea>
           </div>
           
-          <!-- 操作按钮 -->
-          <div class="form-actions" v-if="activeChartLabel">
-            <button class="btn btn-primary" @click="saveActiveLabel" :disabled="activeSegments.length === 0">
-              {{ editingAnnotationIndex !== null ? '更新标注' : '保存标注' }}
+          <!-- 操作按钮 - 始终显示 -->
+          <div class="form-actions">
+            <button class="btn btn-primary" 
+                    @click="saveActiveLabel" 
+                    :disabled="!activeChartLabel || activeSegments.length === 0">
+              {{ editingAnnotationIndex !== null ? '更新标注' : '添加标注' }}
             </button>
-            <button class="btn" @click="resetCurrentAnnotation">重置</button>
+            <button class="btn" 
+                    @click="resetCurrentAnnotation"
+                    :disabled="!activeChartLabel">重置</button>
           </div>
         </div>
 
-        <!-- 📋 已保存标注 -->
+        <!-- 📋 标注结果 -->
         <div class="panel-section">
           <div class="section-header">
-            <h3 class="section-title">📋 已保存标注 ({{ savedAnnotations.length }})</h3>
-            <button class="btn btn-sm btn-primary" @click="downloadAnnotations" :disabled="savedAnnotations.length === 0">下载</button>
+            <h3 class="section-title">📋 标注结果 ({{ savedAnnotations.length }})</h3>
+            <div style="display: flex; gap: 6px;">
+              <button class="btn btn-sm btn-primary" @click="saveAnnotationsToServer" :disabled="savedAnnotations.length === 0" title="保存到服务器">💾 保存</button>
+              <button class="btn btn-sm" @click="downloadAnnotations" :disabled="savedAnnotations.length === 0" title="导出到本地">📥 导出</button>
+            </div>
           </div>
           <div class="annotation-list">
             <div v-for="(ann, idx) in savedAnnotations" :key="ann.id" class="annotation-item" :class="{ 'editing': editingAnnotationIndex === idx }">
@@ -654,6 +668,11 @@ export default {
     },
     
     async selectFile(file) {
+      // Gentle warning if there are unsaved annotations in workspace (don't block)
+      if (this.canSaveAnnotation) {
+        this.showToast('工作区有未保存的标注', 'warning');
+      }
+      
       console.log('selectFile called:', file.name);
       this.selectedFileName = file.name;
       this.loading = true;
@@ -675,6 +694,15 @@ export default {
           const seriesList = [...new Set(plotDict.map(d => d.series))];
           console.log('Calling initChart with', plotDict.length, 'points');
           this.initChart(plotDict, file.name, seriesList, []);
+          
+          // Reset annotation state when switching files
+          this.resetCurrentAnnotation();
+          this.savedAnnotations = [];
+          this.activeChartLabel = null;
+          this.annotationCyclePositions = {};
+          
+          // Load annotations for the new file from server
+          await this.loadAnnotationsForFile(file.name);
         } else {
           this.showToast('加载失败: ' + (data.error || '无数据'), 'error');
         }
@@ -913,6 +941,8 @@ export default {
       
       if (savedCount > 0) {
         this.showToast(`已保存 ${savedCount} 个标签的标注`, 'success');
+        // Auto-save to server after saving annotations
+        this.saveAnnotationsToServer();
       }
       this.resetCurrentAnnotation();
     },
@@ -1011,13 +1041,16 @@ export default {
           this.showToast(`已更新标注: ${labelObj.text}`, 'success');
         } else {
           this.savedAnnotations.push(annotation);
-          this.showToast(`已保存标注: ${labelObj.text} (${annotation.segments.length}段)`, 'success');
+          this.showToast(`已保存到标注结果: ${labelObj.text} (${annotation.segments.length}段)`, 'success');
         }
       }
       
       // Reset edit state but keep label active
       this.currentAnnotation.prompt = '';
       this.currentAnnotation.expertOutput = '';
+      
+      // Auto-save to server after saving annotations
+      this.saveAnnotationsToServer();
     },
     
     // Remove a segment by its range (for activeSegments)
@@ -1252,12 +1285,17 @@ export default {
     deleteAnnotation(idx) {
       this.savedAnnotations.splice(idx, 1);
       this.showToast('标注已删除', 'info');
+      // Auto-save after deletion
+      this.saveAnnotationsToServer();
     },
     
     // Edit an existing annotation - load it into current editing area
     editAnnotation(idx) {
       const ann = this.savedAnnotations[idx];
       if (!ann) return;
+      
+      // Set active chart label so the workspace becomes visible
+      this.activeChartLabel = ann.label.text;
       
       // Load annotation into current editing state
       this.currentAnnotation = {
@@ -1278,6 +1316,52 @@ export default {
       this.editingAnnotationIndex = idx;
       
       this.showToast('已加载标注进行编辑', 'info');
+    },
+    
+    // Load annotations for a specific file from server
+    async loadAnnotationsForFile(filename) {
+      try {
+        const res = await fetch(`${API_BASE}/annotations/${filename}`);
+        const data = await res.json();
+        if (data.success) {
+          this.savedAnnotations = data.annotations || [];
+          if (data.annotations && data.annotations.length > 0) {
+            console.log(`Loaded ${data.annotations.length} annotations for ${filename}`);
+            this.showToast(`已加载 ${data.annotations.length} 个标注`, 'success');
+          }
+        }
+      } catch (e) {
+        console.error('Failed to load annotations:', e);
+        this.savedAnnotations = [];
+      }
+    },
+    
+    // Save annotations to server
+    async saveAnnotationsToServer() {
+      if (!this.selectedFileName) {
+        this.showToast('请先选择文件', 'error');
+        return;
+      }
+      
+      try {
+        const res = await fetch(`${API_BASE}/annotations`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            filename: this.selectedFileName,
+            annotations: this.savedAnnotations
+          })
+        });
+        const data = await res.json();
+        if (data.success) {
+          this.showToast('标注已保存到服务器', 'success');
+        } else {
+          this.showToast('保存失败: ' + data.error, 'error');
+        }
+      } catch (e) {
+        console.error('Save annotations error:', e);
+        this.showToast('保存失败: ' + e.message, 'error');
+      }
     },
     
     downloadAnnotations() {
@@ -1748,7 +1832,8 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .subsection-title { font-size: 0.8125rem; font-weight: 600; color: #666; margin: 12px 0 8px; }
 
 /* Inputs */
-.input, textarea, select { width: 100%; padding: 8px 12px; border: 1px solid #ddd; border-radius: 6px; font-size: 0.875rem; }
+.input, textarea, select { width: 100%; padding: 8px; border: 1px solid #ddd; border-radius: 4px; resize: vertical; font-family: inherit; }
+textarea:disabled { background-color: #f5f5f5; color: #999; cursor: not-allowed; }
 .input:focus, textarea:focus { outline: none; border-color: #7E4C64; }
 .path-input-group { display: flex; gap: 6px; }
 .path-input-group .input { flex: 1; min-width: 0; }
@@ -1773,16 +1858,26 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .file-item.active { background: #d4edda; }
 
 /* Labels */
-.label-section { margin-bottom: 12px; }
-.label-section summary { font-weight: 600; cursor: pointer; padding: 6px 0; }
-.label-category { margin: 8px 0; padding-left: 8px; }
-.category-name { display: block; font-size: 0.75rem; color: #888; margin-bottom: 4px; }
-.label-options { display: flex; flex-wrap: wrap; gap: 6px; }
-.label-option { display: flex; align-items: center; gap: 4px; font-size: 0.8125rem; cursor: pointer; }
-.local-label-options { display: flex; flex-direction: column; gap: 4px; }
-.local-label-item { display: flex; align-items: center; gap: 8px; padding: 6px 10px; border-radius: 6px; cursor: pointer; font-size: 0.8125rem; border: 2px solid transparent; transition: all 0.15s; }
-.local-label-item:hover { background: #f0f0f0; }
-.local-label-item.active { background: #f3e8ed; }
+.label-section { margin-bottom: 8px; }
+.label-section summary { font-weight: 600; cursor: pointer; padding: 4px 0; font-size: 0.8125rem; }
+
+/* Label Categories - Optimized for compact layout */
+.label-categories { display: flex; flex-direction: column; gap: 2px; }
+.label-category { margin: 2px 0; padding-left: 0; }
+.category-name { display: block; font-size: 0.75rem; font-weight: 600; color: #666; margin-bottom: 2px; }
+
+/* Overall attributes - horizontal layout */
+.label-options { display: flex; flex-wrap: wrap; gap: 6px 10px; padding-left: 8px; }
+.label-option { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8125rem; cursor: pointer; }
+.label-option input[type="radio"] { margin: 0; cursor: pointer; }
+.label-option span { cursor: pointer; }
+
+/* Local labels - compact vertical layout */
+.local-category { margin: 2px 0; }
+.local-label-options { display: flex; flex-direction: column; gap: 2px; padding-left: 8px; }
+.local-label-item { display: flex; align-items: center; gap: 4px; padding: 2px 6px; border-radius: 4px; cursor: pointer; font-size: 0.8125rem; border: 1px solid transparent; transition: all 0.2s; }
+.local-label-item:hover { background-color: #f5f5f5; }
+.local-label-item.active { font-weight: 500; }
 .label-color-dot { width: 10px; height: 10px; border-radius: 50%; flex-shrink: 0; }
 .label-color { width: 12px; height: 12px; border-radius: 3px; flex-shrink: 0; }
 .label-select-group { display: flex; align-items: center; gap: 4px; }
@@ -1852,6 +1947,27 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .form-actions .btn { flex: 1; }
 
 /* Segments List */
+
+/* Segment index area - fixed height to prevent layout shift */
+.segment-index-area {
+  min-height: 120px;
+  max-height: 150px;
+  overflow-y: auto;
+  border: 1px solid #e8e8e8;
+  border-radius: 6px;
+  background: #fafafa;
+}
+
+.empty-placeholder {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 120px;
+  color: #999;
+  font-size: 0.875rem;
+  text-align: center;
+}
+
 .segments-list { display: flex; flex-direction: column; gap: 4px; padding: 8px; background: #f8f8f8; border-radius: 6px; max-height: 150px; overflow-y: auto; }
 .segment-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: white; border-radius: 4px; font-size: 0.8125rem; }
 .segment-range { font-family: monospace; color: #7E4C64; font-weight: 500; }
