@@ -4,6 +4,10 @@
     <nav class="navbar">
       <h1 class="navbar-brand">📊 时序标注工具</h1>
       <span class="navbar-file" v-if="selectedFileName">{{ selectedFileName }}</span>
+      <div class="navbar-user">
+        <span class="user-name">👤 {{ currentUser }}</span>
+        <button class="btn-logout" @click="logout">登出</button>
+      </div>
     </nav>
     
     <!-- Main Layout -->
@@ -386,6 +390,8 @@ export default {
   name: 'Index',
   data() {
     return {
+      // User info
+      currentUser: localStorage.getItem('name') || localStorage.getItem('username') || 'User',
       // Path & Files
       dataPath: '',
       currentPath: '',
@@ -543,8 +549,8 @@ export default {
       const labeledPoints = window.plottingApp.allData.filter(d => d.label === this.activeChartLabel);
       if (labeledPoints.length === 0) return [];
       
-      // Sort by index
-      const indices = labeledPoints.map(d => parseInt(d.id)).sort((a, b) => a - b);
+      // Sort by time (numeric index), not id
+      const indices = labeledPoints.map(d => parseInt(d.time) || 0).sort((a, b) => a - b);
       
       // Group into contiguous segments
       const segments = [];
@@ -553,14 +559,26 @@ export default {
       
       for (let i = 1; i < indices.length; i++) {
         if (indices[i] === segEnd + 1) {
+          // Contiguous, extend segment
           segEnd = indices[i];
         } else {
-          segments.push({ start: segStart, end: segEnd, count: segEnd - segStart + 1 });
+          // Gap found, save current segment and start new one
+          segments.push({
+            start: segStart,
+            end: segEnd,
+            count: segEnd - segStart + 1
+          });
           segStart = indices[i];
           segEnd = indices[i];
         }
       }
-      segments.push({ start: segStart, end: segEnd, count: segEnd - segStart + 1 });
+      
+      // Push final segment
+      segments.push({
+        start: segStart,
+        end: segEnd,
+        count: segEnd - segStart + 1
+      });
       
       return segments;
     },
@@ -585,6 +603,14 @@ export default {
     this.loadCurrentPath();
   },
   methods: {
+    // User logout
+    logout() {
+      localStorage.removeItem('token');
+      localStorage.removeItem('username');
+      localStorage.removeItem('name');
+      this.$router.push('/login');
+    },
+    
     // API Methods
     async loadLabels() {
       try {
@@ -612,51 +638,76 @@ export default {
     
     async loadCurrentPath() {
       try {
-        const res = await fetch(`${API_BASE}/current-path`);
+        const res = await fetch(`${API_BASE}/current-path`, {
+          headers: this.getAuthHeaders()
+        });
         const data = await res.json();
         if (data.success && data.path) {
           this.currentPath = data.path;
           this.dataPath = data.path;
-          this.refreshFiles();
+          await this.loadFiles();
+        } else if (res.status === 401) {
+          this.$router.push('/login');
         }
       } catch (e) {
-        console.error('Failed to load path:', e);
+        console.error('Failed to load current path:', e);
       }
     },
     
-    async setPath() {
-      if (!this.dataPath) return;
+    async setDataPath() {
+      if (!this.dataPath) {
+        this.showToast('请输入路径', 'error');
+        return;
+      }
+      
       try {
         const res = await fetch(`${API_BASE}/set-path`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this.getAuthHeaders(),
           body: JSON.stringify({ path: this.dataPath })
         });
         const data = await res.json();
         if (data.success) {
+          // Update display path
           this.currentPath = data.path;
-          this.refreshFiles();
-          this.showToast('路径设置成功', 'success');
+          this.dataPath = data.path;
+          this.showToast('路径已设置', 'success');
+          // Refresh file list
+          await this.loadFiles();
+        } else if (res.status === 401) {
+          this.$router.push('/login');
         } else {
-          this.showToast(data.error || '设置失败', 'error');
+          this.showToast('路径设置失败: ' + data.error, 'error');
         }
       } catch (e) {
-        this.showToast('设置失败', 'error');
+        console.error('Set path error:', e);
+        this.showToast('路径设置失败', 'error');
       }
     },
     
-    async refreshFiles() {
+    async loadFiles() {
       this.loading = true;
       try {
-        const res = await fetch(`${API_BASE}/files`);
+        const res = await fetch(`${API_BASE}/files`, {
+          headers: this.getAuthHeaders()
+        });
         const data = await res.json();
         if (data.success) {
           this.files = data.files;
+          this.currentPath = data.path;
+        } else if (res.status === 401) {
+          this.$router.push('/login');
         }
       } catch (e) {
         console.error('Failed to load files:', e);
+      } finally {
+        this.loading = false;
       }
-      this.loading = false;
+    },
+    
+    // Alias for backward compatibility
+    refreshFiles() {
+      return this.loadFiles();
     },
     
     // Load JSON annotation result file for review/edit
@@ -667,50 +718,47 @@ export default {
       // This would load the annotations and overlay them on the chart
     },
     
+    // Select a CSV file to load
     async selectFile(file) {
-      // Gentle warning if there are unsaved annotations in workspace (don't block)
-      if (this.canSaveAnnotation) {
+      // Warn if workspace has unsaved work
+      if (this.currentAnnotation.segments.length > 0) {
         this.showToast('工作区有未保存的标注', 'warning');
       }
       
-      console.log('selectFile called:', file.name);
+      // Reset states
+      this.currentAnnotation = { label: null, segments: [], prompt: '', expertOutput: '' };
+      this.selectedLocalLabels = [];
+      this.savedAnnotations = [];
+      this.activeChartLabel = '';
+      this.editingAnnotationIndex = null;
+      
+      // Load data from API
       this.selectedFileName = file.name;
       this.loading = true;
+      
       try {
-        const url = `${API_BASE}/data/${file.name}`;
-        console.log('Fetching:', url);
-        const res = await fetch(url);
-        console.log('Response status:', res.status);
+        const res = await fetch(`${API_BASE}/data/${file.name}`, {
+          headers: this.getAuthHeaders()
+        });
         const data = await res.json();
-        console.log('Response data success:', data.success, 'data length:', data.data?.length);
-        if (data.success && data.data && data.data.length > 0) {
-          const plotDict = data.data.map((d, idx) => ({
-            id: idx.toString(),
-            val: parseFloat(d.val),
-            time: d.time,
-            series: d.series || 'value',
-            label: d.label || ''
-          }));
-          const seriesList = [...new Set(plotDict.map(d => d.series))];
-          console.log('Calling initChart with', plotDict.length, 'points');
-          this.initChart(plotDict, file.name, seriesList, []);
+        
+        if (data.success) {
+          // Initialize chart with data
+          this.initChart(data.data, file.name, data.seriesList, data.labelList || []);
           
-          // Reset annotation state when switching files
-          this.resetCurrentAnnotation();
-          this.savedAnnotations = [];
-          this.activeChartLabel = null;
-          this.annotationCyclePositions = {};
-          
-          // Load annotations for the new file from server
+          // Load saved annotations for this file
           await this.loadAnnotationsForFile(file.name);
+        } else if (res.status === 401) {
+          this.$router.push('/login');
         } else {
-          this.showToast('加载失败: ' + (data.error || '无数据'), 'error');
+          this.showToast('加载失败: ' + data.error, 'error');
         }
       } catch (e) {
-        console.error('selectFile error:', e);
-        this.showToast('加载文件失败: ' + e.message, 'error');
+        console.error('Load file error:', e);
+        this.showToast('加载失败: ' + e.message, 'error');
+      } finally {
+        this.loading = false;
       }
-      this.loading = false;
     },
     
     // Chart Initialization
@@ -1318,17 +1366,52 @@ export default {
       this.showToast('已加载标注进行编辑', 'info');
     },
     
+    // Get authorization headers
+    getAuthHeaders() {
+      const token = localStorage.getItem('token');
+      return {
+        'Content-Type': 'application/json',
+        'Authorization': token ? `Bearer ${token}` : ''
+      };
+    },
+    
     // Load annotations for a specific file from server
     async loadAnnotationsForFile(filename) {
       try {
-        const res = await fetch(`${API_BASE}/annotations/${filename}`);
+        const res = await fetch(`${API_BASE}/annotations/${filename}`, {
+          headers: this.getAuthHeaders()
+        });
         const data = await res.json();
         if (data.success) {
-          this.savedAnnotations = data.annotations || [];
-          if (data.annotations && data.annotations.length > 0) {
-            console.log(`Loaded ${data.annotations.length} annotations for ${filename}`);
-            this.showToast(`已加载 ${data.annotations.length} 个标注`, 'success');
+          // Load and normalize annotations - fix old data format
+          const annotations = (data.annotations || []).map(ann => {
+            // Normalize segments to ensure start/end are numbers
+            const normalizedSegments = (ann.segments || []).map(seg => ({
+              start: parseInt(seg.start) || parseInt(seg[0]) || 0,
+              end: parseInt(seg.end) || parseInt(seg[1]) || 0,
+              count: parseInt(seg.count) || parseInt(seg[2]) || 0,
+              minVal: parseFloat(seg.minVal),
+              maxVal: parseFloat(seg.maxVal),
+              mean: parseFloat(seg.mean),
+              label: seg.label || ann.label
+            })).filter(seg => !isNaN(seg.start) && !isNaN(seg.end));  // Filter out invalid segments
+            
+            return {
+              ...ann,
+              segments: normalizedSegments
+            };
+          });
+          
+          this.savedAnnotations = annotations;
+          console.log('Loaded and normalized annotations:', this.savedAnnotations);
+
+          if (this.savedAnnotations.length > 0) {
+            this.showToast(`已加载 ${this.savedAnnotations.length} 个标注`, 'success');
           }
+        } else if (res.status === 401) {
+          this.$router.push('/login');
+        } else {
+          this.savedAnnotations = [];
         }
       } catch (e) {
         console.error('Failed to load annotations:', e);
@@ -1346,7 +1429,7 @@ export default {
       try {
         const res = await fetch(`${API_BASE}/annotations`, {
           method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+          headers: this.getAuthHeaders(),
           body: JSON.stringify({
             filename: this.selectedFileName,
             annotations: this.savedAnnotations
@@ -1355,6 +1438,8 @@ export default {
         const data = await res.json();
         if (data.success) {
           this.showToast('标注已保存到服务器', 'success');
+        } else if (res.status === 401) {
+          this.$router.push('/login');
         } else {
           this.showToast('保存失败: ' + data.error, 'error');
         }
@@ -1464,10 +1549,10 @@ export default {
     },
     
     // Directory Browser
-    openDirBrowser() {
+    async openDirBrowser() {
       this.showDirBrowser = true;
-      this.browsePath = this.currentPath || '/home';
-      this.loadDirectory(this.browsePath);
+      // Start from user's current path, or /home if not set
+      await this.loadDirectory(this.currentPath || '/home');
     },
     
     async loadDirectory(path) {
@@ -1489,9 +1574,29 @@ export default {
     },
     
     async selectCurrentDir() {
-      this.dataPath = this.browsePath;
-      await this.setPath();
-      this.showDirBrowser = false;
+      try {
+        // Set the browsed directory as data path
+        this.dataPath = this.browsePath;
+        this.showDirBrowser = false;
+        
+        // Call the setDataPath method to save and refresh
+        const res = await fetch(`${API_BASE}/set-path`, {
+          method: 'POST',
+          headers: this.getAuthHeaders(),
+          body: JSON.stringify({ path: this.dataPath })
+        });
+        const data = await res.json();
+        if (data.success) {
+          this.currentPath = data.path;
+          this.showToast('路径已设置', 'success');
+          await this.loadFiles();
+        } else {
+          this.showToast('路径设置失败: ' + data.error, 'error');
+        }
+      } catch (e) {
+        console.error('Select directory error:', e);
+        this.showToast('设置失败', 'error');
+      }
     },
     
     // D3 Triggers
@@ -1531,19 +1636,34 @@ export default {
       }
       
       console.log('plottingApp.selection:', plottingApp.selection);
-      console.log('plottingApp.selectedLabel:', plottingApp.selectedLabel);
-      console.log('currentAnnotation.label before:', this.currentAnnotation.label);
+      
+      // Parse and validate numeric values
+      const start = parseInt(plottingApp.selection.start);
+      const end = parseInt(plottingApp.selection.end);
+      const count = parseInt(plottingApp.selection.count);
+      const minVal = parseFloat(plottingApp.selection.minVal);
+      const maxVal = parseFloat(plottingApp.selection.maxVal);
+      const mean = parseFloat(plottingApp.selection.mean);
+      const std = parseFloat(plottingApp.selection.std);
+      const range = parseFloat(plottingApp.selection.range);
+      
+      // Validate that we have valid numbers
+      if (isNaN(start) || isNaN(end)) {
+        console.error('Invalid selection range:', { start, end });
+        this.showToast('框选数据错误', 'error');
+        return;
+      }
       
       // Store selection stats for display - use $set to ensure reactivity
       this.$set(this, 'selectionStats', {
-        start: plottingApp.selection.start,
-        end: plottingApp.selection.end,
-        count: plottingApp.selection.count,
-        minVal: plottingApp.selection.minVal,
-        maxVal: plottingApp.selection.maxVal,
-        mean: plottingApp.selection.mean,
-        std: plottingApp.selection.std,
-        range: plottingApp.selection.range
+        start,
+        end,
+        count: isNaN(count) ? 0 : count,
+        minVal: isNaN(minVal) ? 0 : minVal,
+        maxVal: isNaN(maxVal) ? 0 : maxVal,
+        mean: isNaN(mean) ? 0 : mean,
+        std: isNaN(std) ? 0 : std,
+        range: isNaN(range) ? 0 : range
       });
       
       console.log('selectionStats set to:', this.selectionStats);
@@ -1558,19 +1678,19 @@ export default {
       
       if (!labelToUse) {
         console.log('No label selected');
-        this.selectionRange = `${plottingApp.selection.start} - ${plottingApp.selection.end} (${plottingApp.selection.count}点) - 请先选择标签`;
+        this.selectionRange = `${start} - ${end} (${count}点) - 请先选择标签`;
         this.showToast('请先选择一个标签', 'warning');
         return;
       }
       
       // Create segment object WITH its label info - each segment remembers which label was active
       const segment = {
-        start: plottingApp.selection.start,
-        end: plottingApp.selection.end,
-        count: plottingApp.selection.count,
-        minVal: plottingApp.selection.minVal,
-        maxVal: plottingApp.selection.maxVal,
-        mean: plottingApp.selection.mean,
+        start,
+        end,
+        count: isNaN(count) ? 0 : count,
+        minVal: isNaN(minVal) ? 0 : minVal,
+        maxVal: isNaN(maxVal) ? 0 : maxVal,
+        mean: isNaN(mean) ? 0 : mean,
         label: { ...labelToUse }  // Store the label with the segment!
       };
       
@@ -1752,6 +1872,34 @@ export default {
       return '#' + Math.floor(Math.random()*16777215).toString(16).padStart(6, '0');
     },
     
+    async loadData(filename) {
+      try {
+        this.loading = true;
+        const res = await fetch(`${API_BASE}/data/${filename}`, {
+          headers: this.getAuthHeaders()
+        });
+        const data = await res.json();
+        
+        if (data.success) {
+          console.log('Loaded data:', data.data.length, 'rows');
+          
+          // Pass data to D3
+          if (plottingApp) {
+            plottingApp.updateData(data.data, data.seriesList);
+          }
+          
+          this.isChartMode = true;
+        } else if (res.status === 401) {
+          this.$router.push('/login');
+        } else {
+          this.showToast('加载失败: ' + data.error, 'error');
+        }
+      } catch (e) {
+        console.error('Save labels error:', e);
+        this.showToast('保存失败: ' + e.message, 'error');
+      }
+    },
+    
     async saveLabelsToServer() {
       try {
         const res = await fetch(`${API_BASE}/labels`, {
@@ -1805,9 +1953,32 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 .app-container { min-height: 100vh; background: #f5f5f5; }
 
 /* Navbar */
-.navbar { display: flex; justify-content: space-between; align-items: center; padding: 10px 20px; background: #7E4C64; color: white; }
-.navbar-brand { margin: 0; font-size: 1.1rem; font-weight: 600; }
-.navbar-actions { display: flex; gap: 8px; }
+.navbar {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 12px 20px;
+  background: #fff;
+  border-bottom: 1px solid #eee;
+  position: sticky;
+  top: 0;
+  z-index: 100;
+}
+.navbar-brand { margin: 0; font-size: 1.125rem; font-weight: 600; color: #333; }
+.navbar-file { color: #666; font-size: 0.875rem; margin-left: auto; margin-right: 16px; }
+.navbar-user { display: flex; align-items: center; gap: 12px; }
+.user-name { font-size: 0.875rem; color: #555; }
+.btn-logout {
+  padding: 6px 16px;
+  background: #f5f5f5;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  font-size: 0.8125rem;
+  cursor: pointer;
+  transition: all 0.2s;
+}
+.btn-logout:hover { background: #e8e8e8; border-color: #ccc; }
+
 .nav-btn { background: white; border: none; color: #7E4C64; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 0.875rem; }
 .nav-btn:hover { background: #f0f0f0; }
 

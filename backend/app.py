@@ -10,6 +10,9 @@ import numpy as np
 from pathlib import Path
 from tsdownsample import M4Downsampler
 
+# Import authentication module
+from auth import login_required, verify_password, generate_token, load_users
+
 app = Flask(__name__, static_folder='../frontend/dist', static_url_path='')
 CORS(app)
 
@@ -34,18 +37,25 @@ def index():
     return send_from_directory(app.static_folder, 'index.html')
 
 
-# ==================== Path Management ====================
+# ==================== Path Management (User-specific) ====================
 @app.route('/api/set-path', methods=['POST'])
-def set_data_path():
-    """Set custom data directory path"""
-    global CURRENT_DATA_PATH
+@login_required
+def set_data_path(current_user):
+    """Set custom data directory path for current user"""
     try:
+        from auth import load_users, save_users
+        
         data = request.get_json()
         path = data.get('path', '')
         
         if path and os.path.isdir(path):
-            CURRENT_DATA_PATH = path
-            return jsonify({'success': True, 'path': CURRENT_DATA_PATH})
+            # Save path to user config
+            users = load_users()
+            if current_user in users:
+                users[current_user]['data_path'] = path
+                save_users(users)
+            
+            return jsonify({'success': True, 'path': path})
         else:
             return jsonify({'success': False, 'error': 'Invalid directory path'}), 400
     except Exception as e:
@@ -53,16 +63,26 @@ def set_data_path():
 
 
 @app.route('/api/current-path', methods=['GET'])
-def get_current_path():
-    """Get current data directory path"""
-    return jsonify({'success': True, 'path': CURRENT_DATA_PATH})
+@login_required
+def get_current_path(current_user):
+    """Get current data directory path for current user"""
+    try:
+        from auth import load_users
+        
+        users = load_users()
+        user_path = users.get(current_user, {}).get('data_path', DATA_DIR)
+        
+        return jsonify({'success': True, 'path': user_path})
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
 
 
 @app.route('/api/browse-dir', methods=['GET'])
 def browse_directory():
     """Browse server directory structure"""
     try:
-        path = request.args.get('path', os.path.expanduser('~'))
+        # Default to /home instead of user home directory
+        path = request.args.get('path', '/home')
         
         if not os.path.exists(path):
             return jsonify({'success': False, 'error': 'Path does not exist'}), 404
@@ -116,15 +136,24 @@ def browse_directory():
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-# ==================== File Management ====================
+# ==================== File Management (User-specific path) ====================
 @app.route('/api/files', methods=['GET'])
-def get_files():
-    """Get all CSV and Excel files in current directory"""
+@login_required
+def get_files(current_user):
+    """Get all CSV and Excel files in current user's directory"""
     try:
+        from auth import load_users
+        
+        # Get user's data path
+        users = load_users()
+        user_path = users.get(current_user, {}).get('data_path', DATA_DIR)
+        
         files = []
-        for f in os.listdir(CURRENT_DATA_PATH):
+        for f in os.listdir(user_path):
             if f.endswith(('.csv', '.xls', '.xlsx')):
-                annotation_file = os.path.join(ANNOTATIONS_DIR, f"{f}.json")
+                # Check for annotations in user's annotation directory
+                user_ann_dir = os.path.join(ANNOTATIONS_DIR, current_user)
+                annotation_file = os.path.join(user_ann_dir, f"{f}.json")
                 has_annotations = False
                 annotation_count = 0
                 
@@ -148,17 +177,25 @@ def get_files():
         return jsonify({
             'success': True,
             'files': files,
-            'path': CURRENT_DATA_PATH
+            'path': user_path
         })
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
+
 @app.route('/api/data/<filename>', methods=['GET'])
-def get_data(filename):
+@login_required
+def get_data(filename, current_user):
     """Read CSV or Excel file data with smart column detection and M4 downsampling"""
     try:
-        filepath = os.path.join(CURRENT_DATA_PATH, filename)
+        from auth import load_users
+        
+        # Get user's data path
+        users = load_users()
+        user_path = users.get(current_user, {}).get('data_path', DATA_DIR)
+        
+        filepath = os.path.join(user_path, filename)
         if not os.path.exists(filepath):
             return jsonify({'success': False, 'error': 'File not found'}), 404
         
@@ -319,12 +356,62 @@ def get_data(filename):
         return jsonify({'success': False, 'error': str(e), 'trace': traceback.format_exc()}), 500
 
 
-# ==================== Annotations ====================
-@app.route('/api/annotations/<filename>', methods=['GET'])
-def get_annotations(filename):
-    """Get annotations for a file"""
+# ==================== User Authentication ====================
+@app.route('/api/login', methods=['POST'])
+def login():
+    """User login"""
     try:
-        annotation_file = os.path.join(ANNOTATIONS_DIR, f"{filename}.json")
+        data = request.get_json()
+        username = data.get('username')
+        password = data.get('password')
+        
+        if not username or not password:
+            return jsonify({'success': False, 'error': 'Username and password required'}), 400
+        
+        if verify_password(username, password):
+            token = generate_token(username)
+            users = load_users()
+            user_info = users.get(username, {})
+            
+            return jsonify({
+                'success': True,
+                'token': token,
+                'username': username,
+                'name': user_info.get('name', username)
+            })
+        else:
+            return jsonify({'success': False, 'error': 'Invalid credentials'}), 401
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+@app.route('/api/user', methods=['GET'])
+@login_required
+def get_current_user(current_user):
+    """Get current logged in user info"""
+    try:
+        users = load_users()
+        user_info = users.get(current_user, {})
+        return jsonify({
+            'success': True,
+            'username': current_user,
+            'name': user_info.get('name', current_user)
+        })
+    except Exception as e:
+        return jsonify({'success': False, 'error': str(e)}), 500
+
+
+# ==================== Annotations (Multi-user Support) ====================
+@app.route('/api/annotations/<filename>', methods=['GET'])
+@login_required
+def get_annotations(filename, current_user):
+    """Get annotations for a file (user-specific)"""
+    try:
+        # User-specific annotation directory
+        user_ann_dir = os.path.join(ANNOTATIONS_DIR, current_user)
+        os.makedirs(user_ann_dir, exist_ok=True)
+        
+        annotation_file = os.path.join(user_ann_dir, f"{filename}.json")
         
         if not os.path.exists(annotation_file):
             return jsonify({
@@ -346,8 +433,9 @@ def get_annotations(filename):
 
 
 @app.route('/api/annotations', methods=['POST'])
-def save_annotations():
-    """Save annotations for a file"""
+@login_required
+def save_annotations(current_user):
+    """Save annotations for a file (user-specific)"""
     try:
         data = request.get_json()
         filename = data.get('filename')
@@ -356,7 +444,11 @@ def save_annotations():
         if not filename:
             return jsonify({'success': False, 'error': 'Filename is required'}), 400
         
-        annotation_file = os.path.join(ANNOTATIONS_DIR, f"{filename}.json")
+        # User-specific annotation directory
+        user_ann_dir = os.path.join(ANNOTATIONS_DIR, current_user)
+        os.makedirs(user_ann_dir, exist_ok=True)
+        
+        annotation_file = os.path.join(user_ann_dir, f"{filename}.json")
         
         annotation_data = {
             'filename': filename,

@@ -1,5 +1,90 @@
 # Changelog - 时序标注工具 V2
 
+## [0.3.4] - 2025-12-23
+
+### 🔐 多用户功能改进
+
+#### 用户路径记忆
+- **独立路径** - 每个用户的数据路径独立保存在`users.json`
+- **自动加载** - 登录后自动加载用户上次设置的路径
+- **浏览起点** - 目录浏览器从用户当前路径开始，而非固定的`/home`
+- **路径持久化** - 用户设置的路径在重新登录后保持不变
+
+#### 前端功能完善
+- **用户信息显示** - 导航栏右上角显示当前登录用户名
+- **登出按钮** - 点击登出清除token并跳转登录页
+- **路径选择** - 目录浏览器"选择"按钮正常工作
+- **Authorization头** - 所有API请求添加JWT token认证
+
+### 🐛 Bug修复
+
+- **[严重] 数据段索引NaN** - 修复框选后显示"NaN-NaN"的问题
+  - 原因：`activeSegments`使用了错误的字段`d.id`而非`d.time`
+  - 修复：改用`parseInt(d.time)`计算segment范围
+  - 影响：数据段索引、标注列表、工作区显示
+  
+- **数据格式兼容** - `loadAnnotationsForFile`添加数据归一化
+  - 支持旧格式数组`[start, end]`和新格式对象`{start, end}`
+  - 自动过滤无效segment（start或end为NaN）
+  
+- **路径API认证** - 修复`get_files`、`get_data`、`get_current_path`等API的认证问题
+  - 所有路径相关API添加`@login_required`装饰器
+  - 使用用户专属路径而非全局共享路径
+
+### 📁 文件改动
+
+#### Backend
+- **[MODIFY] app.py** - API使用用户路径，添加认证装饰器（+25行）
+- **[MODIFY] auth.py** - 导出`save_users`函数供路径保存使用（+5行）
+
+#### Frontend
+- **[MODIFY] views/Index.vue** - 修复activeSegments、添加用户信息显示、完善auth头（+40行）
+- **[MODIFY] router/index.js** - 路由守卫处理（修改）
+
+---
+
+## [0.3.3] - 2025-12-23
+
+### 🔐 多用户协作功能
+
+#### 用户认证系统
+- **JWT登录** - 基于token的无状态认证
+- **登录页面** - 简洁的登录界面，默认账号 admin/admin123
+- **路由守卫** - 未登录自动跳转登录页
+- **登出功能** - 导航栏显示用户名和登出按钮
+- **密码加密** - 支持sha256和pbkdf2两种哈希格式
+
+#### 用户独立空间
+- **独立标注目录** - 每个用户标注保存在 `annotations/{username}/` 
+- **避免冲突** - 多用户可同时标注同名文件而不冲突
+- **数据隔离** - 用户只能查看和编辑自己的标注
+
+#### 用户管理工具
+- **manage_users.py** - 命令行用户管理工具
+- **初始化账号** - `python manage_users.py init` 创建默认admin账号
+- **添加用户** - `python manage_users.py add <user> <pwd> [name]`
+- **查看用户** - `python manage_users.py list`
+
+### 📁 文件改动
+
+#### Backend
+- **[NEW] auth.py** - JWT认证模块，token生成和验证（+105行）
+- **[NEW] manage_users.py** - 用户管理CLI工具（+105行）
+- **[NEW] users.json** - 用户配置文件
+- **[MODIFY] app.py** - 添加登录API，标注API使用用户独立目录（+60行）
+
+#### Frontend
+- **[NEW] views/Login.vue** - 登录页面组件（+210行）
+- **[MODIFY] router/index.js** - 添加登录路由和路由守卫（+25行）
+- **[MODIFY] views/Index.vue** - 添加Authorization头、用户信息显示、登出功能（+30行）
+
+### 🐛 Bug修复
+
+- **修复密码验证** - auth.py支持sha256和werkzeug两种密码哈希格式
+- **修复导航栏样式** - 调整为白色背景，添加用户信息和登出按钮
+
+---
+
 ## [0.3.2] - 2025-12-23
 
 ### 🔧 核心功能

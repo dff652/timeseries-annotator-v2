@@ -4,7 +4,7 @@
 
 ## 项目状态
 
-🟢 **当前版本**: v0.3.2 (2025-12-23)
+🟢 **当前版本**: v0.3.4 (2025-12-23)
 
 ## 功能特性
 
@@ -32,36 +32,113 @@
 - **JSON导出**：包含标签、数据段、问题、分析结论
 - **一标签多段**：一个标注可包含多个数据段
 
+### 🔐 多用户协作
+- **用户认证**：JWT token登录认证
+- **独立空间**：每个用户标注保存在独立目录
+- **避免冲突**：多用户可同时标注同名文件
+- **用户管理**：命令行工具管理用户账号
+
 ## 快速开始
 
-### 启动后端
+### 环境要求
 
+- Python 3.8+
+- Node.js 14+
+
+### 安装依赖
+
+**后端**：
 ```bash
 cd backend
 pip install -r requirements.txt
-python app.py
+pip install PyJWT  # JWT认证
 ```
 
-后端将在 http://localhost:5000 启动
-
-### 启动前端
-
+**前端**：
 ```bash
 cd frontend
 npm install
+```
+
+### 初始化用户
+
+```bash
+cd backend
+python manage_users.py init
+```
+
+默认账号：`admin / admin123`
+
+### 启动服务
+
+**后端**（5000端口）：
+```bash
+cd backend
+python app.py
+```
+
+**前端**（3003端口）：
+```bash
+cd frontend
 npm run dev
 ```
 
-前端将在 http://localhost:3003 启动
+访问：http://localhost:3003
+
+## 用户管理
+
+### 添加新用户
+
+**命令格式**：
+```bash
+python manage_users.py add <用户名> <密码> [显示名称]
+```
+
+**示例**：
+```bash
+cd backend
+# 添加用户alice，密码123456，显示名称Alice
+python manage_users.py add alice 123456 Alice
+
+# 添加用户bob，密码secretpwd，显示名称Bob
+python manage_users.py add bob secretpwd Bob
+```
+
+### 查看用户列表
+
+```bash
+python manage_users.py list
+```
+
+### 用户数据存储
+
+每个用户的标注保存在独立目录：
+
+```
+backend/annotations/
+├── admin/
+│   ├── dataset1.csv.json
+│   └── dataset2.csv.json
+├── alice/
+│   └── experiment.csv.json
+└── bob/
+    └── test.csv.json
+```
+
+**优点**：
+- ✅ 完全避免标注冲突
+- ✅ 支持多用户并发工作
+- ✅ 数据隔离更安全
 
 ## 使用流程
 
 ```
-1. 左侧选择文件 → 加载时序数据（自动加载已有标注）
-2. 左侧选择标签 → 确定标注类型
-3. 主图框选区域 → 自动着色并添加到工作区
-4. 填写问题/分析结论 → 点击"添加标注"（自动保存到服务器）
-5. 导出JSON → 下载最终标注结果到本地
+1. 登录系统 → 使用账号密码登录
+2. 左侧选择文件 → 加载时序数据（自动加载已有标注）
+3. 左侧选择标签 → 确定标注类型
+4. 主图框选区域 → 自动着色并添加到工作区
+5. 填写问题/分析结论 → 点击"添加标注"（自动保存到服务器）
+6. 导出JSON → 下载最终标注结果到本地
 ```
 
 ## 目录结构
@@ -70,12 +147,18 @@ npm run dev
 timeseries-annotator-v2/
 ├── backend/              # Flask后端
 │   ├── app.py           # API入口
+│   ├── auth.py          # JWT认证
+│   ├── manage_users.py  # 用户管理工具
+│   ├── users.json       # 用户配置
 │   ├── config/          # 配置文件
-│   └── annotations/     # 标注存储
+│   └── annotations/     # 用户标注存储
+│       ├── admin/
+│       ├── alice/
+│       └── bob/
 ├── frontend/            # Vue.js前端
 │   ├── src/
-│   │   ├── views/       # Index.vue 主页面
-│   │   └── assets/js/   # LabelerD3.js 图表逻辑
+│   │   ├── views/       # Index.vue主页 + Login.vue登录页
+│   │   └── assets/js/   # LabelerD3.js图表逻辑
 │   └── package.json
 ├── CHANGELOG.md         # 版本更新日志
 └── docs/                # 文档目录
@@ -84,8 +167,9 @@ timeseries-annotator-v2/
 ## 技术栈
 
 - **前端**: Vue.js 2.x, D3.js
-- **后端**: Flask, Pandas
+- **后端**: Flask, Pandas, PyJWT
 - **存储**: JSON文件
+- **认证**: JWT token
 
 ## 更新日志
 
