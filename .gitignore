@@ -41,3 +41,7 @@ logs/
 # Environment
 .env
 .env.local
+
+# User data (sensitive or runtime-generated)
+backend/users.json
+backend/annotations/

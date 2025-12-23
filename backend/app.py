@@ -148,24 +148,64 @@ def get_files(current_user):
         users = load_users()
         user_path = users.get(current_user, {}).get('data_path', DATA_DIR)
         
+        print(f"=== get_files for user: {current_user} ===")
+        print(f"User path: {user_path}")
+        print(f"Path exists: {os.path.exists(user_path)}")
+        print(f"Is directory: {os.path.isdir(user_path)}")
+        
+        if not os.path.exists(user_path):
+            return jsonify({'success': False, 'error': 'Path does not exist'}), 404
+        
+        all_items = os.listdir(user_path)
+        print(f"All items in directory: {all_items}")
+        
         files = []
-        for f in os.listdir(user_path):
-            if f.endswith(('.csv', '.xls', '.xlsx')):
+        for f in all_items:
+            full_path = os.path.join(user_path, f)
+            print(f"Checking: {f}, is_file: {os.path.isfile(full_path)}")
+            
+            if os.path.isfile(full_path) and f.endswith(('.csv', '.xls', '.xlsx')):
+                print(f"  -> Matched: {f}")
                 # Check for annotations in user's annotation directory
                 user_ann_dir = os.path.join(ANNOTATIONS_DIR, current_user)
-                annotation_file = os.path.join(user_ann_dir, f"{f}.json")
-                has_annotations = False
-                annotation_count = 0
                 
-                if os.path.exists(annotation_file):
+                # Try multiple annotation file name patterns
+                annotation_file = None
+                annotation_count = 0
+                has_annotations = False
+                
+                # Pattern 1: filename.csv.json (standard)
+                pattern1 = os.path.join(user_ann_dir, f"{f}.json")
+                # Pattern 2: annotations_数据集filename.json (exported)
+                pattern2 = os.path.join(user_ann_dir, f"annotations_数据集{f.replace('.csv', '')}.json")
+                # Pattern 3: annotations_filename.json (exported without 数据集)
+                pattern3 = os.path.join(user_ann_dir, f"annotations_{f.replace('.csv', '')}.json")
+                
+                for pattern in [pattern1, pattern2, pattern3]:
+                    if os.path.exists(pattern):
+                        annotation_file = pattern
+                        print(f"  -> Found annotation: {os.path.basename(pattern)}")
+                        break
+                
+                if annotation_file and os.path.exists(annotation_file):
                     try:
                         with open(annotation_file, 'r', encoding='utf-8') as af:
                             ann_data = json.load(af)
+                            # Support both formats
                             annotations = ann_data.get('annotations', [])
+                            
+                            # Has annotations if there are any annotations (including no-label)
                             if annotations:
                                 has_annotations = True
-                                annotation_count = len(annotations)
-                    except:
+                            
+                            # Only count annotations with segments (exclude no-label annotations)
+                            annotations_with_segments = [
+                                ann for ann in annotations 
+                                if ann.get('segments') and len(ann.get('segments', [])) > 0
+                            ]
+                            annotation_count = len(annotations_with_segments)
+                    except Exception as e:
+                        print(f"  -> Error reading annotation: {e}")
                         pass
                 
                 files.append({
@@ -174,12 +214,17 @@ def get_files(current_user):
                     'annotation_count': annotation_count
                 })
         
+        print(f"Matched files: {[f['name'] for f in files]}")
+        
         return jsonify({
             'success': True,
             'files': files,
             'path': user_path
         })
     except Exception as e:
+        print(f"Error in get_files: {e}")
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
@@ -411,56 +456,97 @@ def get_annotations(filename, current_user):
         user_ann_dir = os.path.join(ANNOTATIONS_DIR, current_user)
         os.makedirs(user_ann_dir, exist_ok=True)
         
-        annotation_file = os.path.join(user_ann_dir, f"{filename}.json")
+        # Try multiple patterns to find the annotation file
+        annotation_file = None
+        annotation_data = None
         
-        if not os.path.exists(annotation_file):
+        # Pattern 1: Standard format (filename.json)
+        pattern1 = os.path.join(user_ann_dir, f"{filename}.json")
+        if os.path.exists(pattern1):
+            annotation_file = pattern1
+        
+        # Pattern 2 & 3: Search all JSON files and match by filename field
+        if not annotation_file:
+            for json_file in os.listdir(user_ann_dir):
+                if not json_file.endswith('.json'):
+                    continue
+                json_path = os.path.join(user_ann_dir, json_file)
+                try:
+                    with open(json_path, 'r', encoding='utf-8') as f:
+                        data = json.load(f)
+                        # Check if this JSON's filename matches
+                        if data.get('filename') == filename:
+                            annotation_file = json_path
+                            annotation_data = data
+                            break
+                except:
+                    continue
+        
+        if not annotation_file:
             return jsonify({
                 'success': True,
                 'filename': filename,
                 'annotations': []
             })
         
-        with open(annotation_file, 'r', encoding='utf-8') as f:
-            data = json.load(f)
+        # Load data if not already loaded
+        if not annotation_data:
+            with open(annotation_file, 'r', encoding='utf-8') as f:
+                annotation_data = json.load(f)
         
         return jsonify({
             'success': True,
             'filename': filename,
-            'annotations': data.get('annotations', [])
+            'annotations': annotation_data.get('annotations', []),
+            'overall_attribute': annotation_data.get('overall_attribute', {})
         })
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 
-@app.route('/api/annotations', methods=['POST'])
+@app.route('/api/annotations/<filename>', methods=['POST'])
 @login_required
-def save_annotations(current_user):
-    """Save annotations for a file (user-specific)"""
+def save_annotations(filename, current_user):
+    """Save annotations for a file (user-specific directory)"""
     try:
+        from flask import request
+        from auth import load_users
+        
         data = request.get_json()
-        filename = data.get('filename')
-        annotations = data.get('annotations', [])
         
-        if not filename:
-            return jsonify({'success': False, 'error': 'Filename is required'}), 400
+        # Support both old and new formats
+        # New format: {filename, overall_attribute, annotations, export_time}
+        # Old format: {annotations, overall_attributes}
+        if 'filename' in data:
+            # New unified format
+            save_data = data
+        else:
+            # Old format - convert to new format
+            save_data = {
+                'filename': filename,
+                'overall_attribute': data.get('overall_attributes', {}),
+                'annotations': data.get('annotations', []),
+                'export_time': datetime.now().isoformat()
+            }
         
-        # User-specific annotation directory
+        # Save to user's annotation directory
         user_ann_dir = os.path.join(ANNOTATIONS_DIR, current_user)
         os.makedirs(user_ann_dir, exist_ok=True)
         
         annotation_file = os.path.join(user_ann_dir, f"{filename}.json")
         
-        annotation_data = {
-            'filename': filename,
-            'annotations': annotations,
-            'last_updated': datetime.now().isoformat()
-        }
-        
         with open(annotation_file, 'w', encoding='utf-8') as f:
-            json.dump(annotation_data, f, ensure_ascii=False, indent=2)
+            json.dump(save_data, f, ensure_ascii=False, indent=2)
         
-        return jsonify({'success': True, 'message': 'Annotations saved successfully'})
+        return jsonify({
+            'success': True,
+            'message': f'Annotations saved for {filename}'
+        })
     except Exception as e:
+        import traceback
+        traceback.print_exc()
         return jsonify({'success': False, 'error': str(e)}), 500
 
 

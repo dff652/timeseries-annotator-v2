@@ -23,18 +23,26 @@
           <!-- 标签页切换 -->
           <div class="file-tabs">
             <button class="file-tab" :class="{ active: fileTab === 'csv' }" @click="fileTab = 'csv'">📄 原始数据</button>
-            <button class="file-tab" :class="{ active: fileTab === 'json' }" @click="fileTab = 'json'">� 标注结果</button>
+            <button class="file-tab" :class="{ active: fileTab === 'json' }" @click="fileTab = 'json'"> 标注结果</button>
           </div>
           <!-- 路径输入 -->
-          <div class="path-input-group">
+          <div class="path-control">
             <input type="text" v-model="dataPath" placeholder="输入路径" class="input input-sm" @keyup.enter="setPath">
             <button class="btn btn-primary btn-xs" @click="openDirBrowser">📂</button>
           </div>
           <p class="current-path" v-if="currentPath">{{ currentPath }}</p>
+          <div class="sort-control" v-if="fileTab === 'csv' && csvFiles.length > 0">
+            <label>排序:</label>
+            <select v-model="fileSortBy" class="sort-select">
+              <option value="name">名称</option>
+              <option value="annotation">标注数</option>
+            </select>
+          </div>
           <!-- CSV 文件列表 -->
           <div class="file-list" v-show="fileTab === 'csv'">
             <div v-for="file in csvFiles" :key="file.name" class="file-item" :class="{ active: file.name === selectedFileName }" @click="selectFile(file)">
               <span class="file-name">{{ file.name }}</span>
+              <span v-if="file.has_annotations" class="file-badge" :title="`${file.annotation_count} 个标注`">✓ {{ file.annotation_count }}</span>
             </div>
             <p v-if="csvFiles.length === 0 && !loading" class="empty-message">暂无 CSV 文件</p>
           </div>
@@ -201,36 +209,33 @@
               </div>
               <div v-else-if="activeChartLabel" class="empty-placeholder">该标签暂无数据段</div>
               <div v-else-if="chartLabelStats.length > 0" class="empty-placeholder">↑ 点击标签查看数据段</div>
-              <div v-else class="empty-placeholder">← 左侧选择标签后在图中框选</div>
+              <div v-else class="empty-placeholder">← 选择标签框选，或直接输入问题和分析</div>
             </div>
           </div>
           
-          <!-- 问题和分析结论 - 始终显示 -->
+          <!-- 问题和评价 - 始终显示 -->
           <div class="form-group">
             <label>问题</label>
             <textarea v-model="currentAnnotation.prompt" 
                       rows="2" 
-                      placeholder="描述发现的问题..." 
-                      :disabled="!activeChartLabel"></textarea>
+                      placeholder="描述发现的问题..."></textarea>
           </div>
           <div class="form-group">
-            <label>分析结论</label>
+            <label>评价</label>
             <textarea v-model="currentAnnotation.expertOutput" 
                       rows="2" 
-                      placeholder="分析结论..." 
-                      :disabled="!activeChartLabel"></textarea>
+                      placeholder="评价..."></textarea>
           </div>
           
           <!-- 操作按钮 - 始终显示 -->
           <div class="form-actions">
             <button class="btn btn-primary" 
                     @click="saveActiveLabel" 
-                    :disabled="!activeChartLabel || activeSegments.length === 0">
+                    :disabled="!canSaveCurrentAnnotation">
               {{ editingAnnotationIndex !== null ? '更新标注' : '添加标注' }}
             </button>
             <button class="btn" 
-                    @click="resetCurrentAnnotation"
-                    :disabled="!activeChartLabel">重置</button>
+                    @click="resetCurrentAnnotation">重置</button>
           </div>
         </div>
 
@@ -434,7 +439,8 @@ export default {
       browsePath: '',
       parentPath: '',
       directories: [],
-      fileTab: 'csv',  // 'csv' or 'json'
+      fileTab: 'csv',
+      fileSortBy: 'name',  // 'name' or 'annotation'
       selectedResultFile: '',
       
       // Category colors for local changes - each major category gets one color
@@ -476,9 +482,17 @@ export default {
     canSaveAnnotation() {
       return this.currentAnnotation.label !== null && this.currentAnnotation.segments.length > 0;
     },
-    // Filter files for CSV tab
+    // 新增：是否可以保存当前标注（允许仅问题和分析）
+    canSaveCurrentAnnotation() {
+      const hasSegments = this.activeChartLabel && this.activeSegments.length > 0;
+      const hasContent = (this.currentAnnotation.prompt || '').trim() || 
+                        (this.currentAnnotation.expertOutput || '').trim();
+      return hasSegments || hasContent;
+    },
+    // Filter and sort files for CSV tab
     csvFiles() {
-      return this.files.filter(f => f.name.toLowerCase().endsWith('.csv'));
+      const filtered = this.files.filter(f => f.name.toLowerCase().endsWith('.csv'));
+      return this.sortFiles(filtered, this.fileSortBy);
     },
     // Filter files for JSON results
     jsonFiles() {
@@ -685,23 +699,72 @@ export default {
       }
     },
     
+    // Natural sort for filenames with numbers
+    naturalSort(a, b) {
+      const ax = [];
+      const bx = [];
+      
+      a.replace(/(\d+)|(\D+)/g, (_, num, str) => { ax.push([num || Infinity, str || '']); });
+      b.replace(/(\d+)|(\D+)/g, (_, num, str) => { bx.push([num || Infinity, str || '']); });
+      
+      while (ax.length && bx.length) {
+        const an = ax.shift();
+        const bn = bx.shift();
+        const nn = (an[0] - bn[0]) || an[1].localeCompare(bn[1]);
+        if (nn) return nn;
+      }
+      
+      return ax.length - bx.length;
+    },
+    
+    // Sort files by different criteria
+    sortFiles(files, sortBy) {
+      const sorted = [...files];
+      
+      if (sortBy === 'annotation') {
+        // Sort by annotation count (descending), then by name
+        sorted.sort((a, b) => {
+          const countDiff = (b.annotation_count || 0) - (a.annotation_count || 0);
+          if (countDiff !== 0) return countDiff;
+          return this.naturalSort(a.name.toLowerCase(), b.name.toLowerCase());
+        });
+      } else {
+        // Sort by name (natural sort)
+        sorted.sort((a, b) => this.naturalSort(a.name.toLowerCase(), b.name.toLowerCase()));
+      }
+      
+      return sorted;
+    },
+    
     async loadFiles() {
-      this.loading = true;
+      if (!this.currentPath) return;
+      
       try {
-        const res = await fetch(`${API_BASE}/files`, {
+        const url = `${API_BASE}/files?path=${encodeURIComponent(this.currentPath)}`;
+        
+        const res = await fetch(url, {
           headers: this.getAuthHeaders()
         });
         const data = await res.json();
+        
         if (data.success) {
-          this.files = data.files;
-          this.currentPath = data.path;
+          const allFiles = data.files || [];
+          
+          // Set files array - csvFiles and jsonFiles are computed from this
+          this.files = allFiles;
+          this.currentPath = data.path || this.currentPath;
+          
+          const csvCount = allFiles.filter(f => f.name.endsWith('.csv')).length;
+          this.showToast(`已加载 ${csvCount} 个CSV文件`, 'success');
         } else if (res.status === 401) {
           this.$router.push('/login');
+        } else {
+          console.error('Load files failed:', data.error);
+          this.showToast('文件加载失败: ' + (data.error || '未知错误'), 'error');
         }
       } catch (e) {
-        console.error('Failed to load files:', e);
-      } finally {
-        this.loading = false;
+        console.error('Load files error:', e);
+        this.showToast('文件加载失败: ' + e.message, 'error');
       }
     },
     
@@ -720,10 +783,7 @@ export default {
     
     // Select a CSV file to load
     async selectFile(file) {
-      // Warn if workspace has unsaved work
-      if (this.currentAnnotation.segments.length > 0) {
-        this.showToast('工作区有未保存的标注', 'warning');
-      }
+      if (!file || !file.name) return;
       
       // Reset states
       this.currentAnnotation = { label: null, segments: [], prompt: '', expertOutput: '' };
@@ -1047,57 +1107,112 @@ export default {
       this.annotationVersion++;
     },
     
-    // Save the currently active label as an annotation
+    // Save all labels with segments as annotations
     saveActiveLabel() {
-      if (!this.activeChartLabel || this.activeSegments.length === 0) {
-        this.showToast('请先选择标签并确保有数据段', 'error');
+      // Get all labels that have segments
+      const labelsWithSegments = this.chartLabelStats.filter(stat => stat.count > 0);
+      
+      // Check if we have content-only annotation (no labels selected)
+      const hasContent = (this.currentAnnotation.prompt || '').trim() || 
+                        (this.currentAnnotation.expertOutput || '').trim();
+      
+      if (labelsWithSegments.length === 0 && !hasContent) {
+        this.showToast('请至少选择标签框选数据段，或输入问题/评价', 'error');
         return;
       }
       
-      // Find label info
-      const stat = this.chartLabelStats.find(s => s.text === this.activeChartLabel);
-      if (!stat) return;
+      let savedCount = 0;
       
-      let labelObj = { id: stat.text, text: stat.text, color: stat.color };
-      const localCats = this.labels.local_change || {};
-      for (const [catId, cat] of Object.entries(localCats)) {
-        const foundLabel = cat.labels?.find(l => l.text === stat.text);
-        if (foundLabel) {
-          labelObj = { ...foundLabel, color: stat.color, categoryId: catId, categoryName: cat.name };
-          break;
+      // Save each label with its segments
+      for (const stat of labelsWithSegments) {
+        // Find label info
+        let labelObj = { id: stat.text, text: stat.text, color: stat.color };
+        const localCats = this.labels.local_change || {};
+        for (const [catId, cat] of Object.entries(localCats)) {
+          const foundLabel = cat.labels?.find(l => l.text === stat.text);
+          if (foundLabel) {
+            labelObj = { ...foundLabel, color: stat.color, categoryId: catId, categoryName: cat.name };
+            break;
+          }
         }
-      }
-      
-      const annotation = {
-        id: Date.now(),
-        label: labelObj,
-        segments: [...this.activeSegments],
-        prompt: this.currentAnnotation.prompt || '',
-        expertOutput: this.currentAnnotation.expertOutput || ''
-      };
-      
-      if (this.editingAnnotationIndex !== null) {
-        // Update existing
-        this.savedAnnotations.splice(this.editingAnnotationIndex, 1, annotation);
-        this.showToast(`已更新标注: ${labelObj.text}`, 'success');
-        this.editingAnnotationIndex = null;
-      } else {
-        // Check for duplicate
-        const existingIdx = this.savedAnnotations.findIndex(a => a.label.text === labelObj.text);
-        if (existingIdx >= 0) {
-          this.savedAnnotations.splice(existingIdx, 1, annotation);
-          this.showToast(`已更新标注: ${labelObj.text}`, 'success');
+        
+        // Get segments for this label
+        const labeledPoints = window.plottingApp.allData.filter(d => d.label === stat.text);
+        if (labeledPoints.length === 0) continue;
+        
+        // Sort by time and group into segments
+        const indices = labeledPoints.map(d => parseInt(d.time) || 0).sort((a, b) => a - b);
+        const segments = [];
+        let segStart = indices[0];
+        let segEnd = indices[0];
+        
+        for (let i = 1; i < indices.length; i++) {
+          if (indices[i] === segEnd + 1) {
+            segEnd = indices[i];
+          } else {
+            segments.push({
+              start: segStart,
+              end: segEnd,
+              count: segEnd - segStart + 1
+            });
+            segStart = indices[i];
+            segEnd = indices[i];
+          }
+        }
+        segments.push({
+          start: segStart,
+          end: segEnd,
+          count: segEnd - segStart + 1
+        });
+        
+        const annotation = {
+          id: Date.now() + savedCount,
+          label: labelObj,
+          segments: segments,
+          prompt: this.currentAnnotation.prompt || '',
+          expertOutput: this.currentAnnotation.expertOutput || ''
+        };
+        
+        // Check for existing and merge/update
+        const existingIdx = this.savedAnnotations.findIndex(a => 
+          a.label.text === labelObj.text
+        );
+        
+        if (existingIdx !== -1) {
+          // Merge segments
+          const existing = this.savedAnnotations[existingIdx];
+          existing.segments = [...existing.segments, ...segments];
+          existing.prompt = annotation.prompt || existing.prompt;
+          existing.expertOutput = annotation.expertOutput || existing.expertOutput;
+          this.$set(this.savedAnnotations, existingIdx, existing);
         } else {
+          // Add new
           this.savedAnnotations.push(annotation);
-          this.showToast(`已保存到标注结果: ${labelObj.text} (${annotation.segments.length}段)`, 'success');
         }
+        
+        savedCount++;
       }
       
-      // Reset edit state but keep label active
-      this.currentAnnotation.prompt = '';
-      this.currentAnnotation.expertOutput = '';
+      // If only content without labels
+      if (labelsWithSegments.length === 0 && hasContent) {
+        const annotation = {
+          id: Date.now(),
+          label: { id: 'no_label', text: '无标签', color: '#999999' },
+          segments: [],
+          prompt: this.currentAnnotation.prompt || '',
+          expertOutput: this.currentAnnotation.expertOutput || ''
+        };
+        this.savedAnnotations.push(annotation);
+        savedCount = 1;
+      }
       
-      // Auto-save to server after saving annotations
+      if (savedCount > 0) {
+        this.showToast(`已添加 ${savedCount} 个标注`, 'success');
+      }
+      
+      this.resetCurrentAnnotation();
+      
+      // Auto-save to server
       this.saveAnnotationsToServer();
     },
     
@@ -1378,7 +1493,7 @@ export default {
     // Load annotations for a specific file from server
     async loadAnnotationsForFile(filename) {
       try {
-        const res = await fetch(`${API_BASE}/annotations/${filename}`, {
+        const res = await fetch(`${API_BASE}/annotations/${encodeURIComponent(filename)}`, {
           headers: this.getAuthHeaders()
         });
         const data = await res.json();
@@ -1396,9 +1511,12 @@ export default {
               label: seg.label || ann.label
             })).filter(seg => !isNaN(seg.start) && !isNaN(seg.end));  // Filter out invalid segments
             
+            // Map field names: expert_output -> expertOutput
             return {
               ...ann,
-              segments: normalizedSegments
+              segments: normalizedSegments,
+              expertOutput: ann.expert_output || ann.expertOutput || '',
+              prompt: ann.prompt || ''
             };
           });
           
@@ -1421,26 +1539,44 @@ export default {
     
     // Save annotations to server
     async saveAnnotationsToServer() {
-      if (!this.selectedFileName) {
-        this.showToast('请先选择文件', 'error');
-        return;
-      }
+      if (!this.selectedFileName) return;
       
       try {
-        const res = await fetch(`${API_BASE}/annotations`, {
+        // Use unified format (same as export)
+        const exportData = {
+          filename: this.selectedFileName,
+          overall_attribute: this.selectedOverallLabels,
+          annotations: this.savedAnnotations.map(ann => ({
+            label: {
+              id: ann.label.id,
+              text: ann.label.text,
+              categoryId: ann.label.categoryId,
+              color: ann.label.color
+            },
+            segments: ann.segments,
+            prompt: ann.prompt,
+            expert_output: ann.expertOutput
+          })),
+          export_time: new Date().toISOString()
+        };
+        
+        const res = await fetch(`${API_BASE}/annotations/${encodeURIComponent(this.selectedFileName)}`, {
           method: 'POST',
-          headers: this.getAuthHeaders(),
-          body: JSON.stringify({
-            filename: this.selectedFileName,
-            annotations: this.savedAnnotations
-          })
+          headers: {
+            ...this.getAuthHeaders(),
+            'Content-Type': 'application/json'
+          },
+          body: JSON.stringify(exportData)
         });
         const data = await res.json();
         if (data.success) {
-          this.showToast('标注已保存到服务器', 'success');
+          this.showToast('已自动保存', 'success');
+          // Refresh file list to update annotation badge
+          await this.loadFiles();
         } else if (res.status === 401) {
           this.$router.push('/login');
         } else {
+          console.error('Save failed:', data.error);
           this.showToast('保存失败: ' + data.error, 'error');
         }
       } catch (e) {
@@ -2023,23 +2159,32 @@ textarea:disabled { background-color: #f5f5f5; color: #999; cursor: not-allowed;
 .add-btn, .delete-btn { background: #eee; border: 1px solid #ddd; width: 28px; height: 28px; border-radius: 4px; font-size: 1.2rem; cursor: pointer; }
 
 /* File List */
-.file-list { max-height: 180px; overflow-y: auto; }
-.file-item { padding: 8px 12px; border-radius: 6px; cursor: pointer; font-size: 0.8125rem; }
-.file-item:hover { background: #f0f0f0; }
-.file-item.active { background: #d4edda; }
+/* File List - Expanded and bordered */
+.file-list { max-height: 300px; overflow-y: auto; margin-top: 8px; }
+.file-item { 
+  padding: 10px 14px; 
+  margin-bottom: 6px;
+  border: 1px solid #e0e0e0; 
+  border-radius: 6px; 
+  cursor: pointer; 
+  font-size: 0.875rem;
+  transition: all 0.2s;
+}
+.file-item:hover { background: #f8f8f8; border-color: #c0c0c0; }
+.file-item.active { background: #d4edda; border-color: #28a745; font-weight: 500; }
 
 /* Labels */
 .label-section { margin-bottom: 8px; }
 .label-section summary { font-weight: 600; cursor: pointer; padding: 4px 0; font-size: 0.8125rem; }
 
 /* Label Categories - Optimized for compact layout */
-.label-categories { display: flex; flex-direction: column; gap: 2px; }
-.label-category { margin: 2px 0; padding-left: 0; }
-.category-name { display: block; font-size: 0.75rem; font-weight: 600; color: #666; margin-bottom: 2px; }
+.label-categories { display: flex; flex-direction: column; gap: 1px; }
+.label-category { margin: 1px 0; padding-left: 0; }
+.category-name { display: block; font-size: 0.75rem; font-weight: 600; color: #666; margin-bottom: 1px; }
 
-/* Overall attributes - horizontal layout */
-.label-options { display: flex; flex-wrap: wrap; gap: 6px 10px; padding-left: 8px; }
-.label-option { display: inline-flex; align-items: center; gap: 4px; font-size: 0.8125rem; cursor: pointer; }
+/* Overall attributes - more compact horizontal layout */
+.label-options { display: flex; flex-wrap: wrap; gap: 4px 8px; padding-left: 6px; }
+.label-option { display: inline-flex; align-items: center; gap: 3px; font-size: 0.75rem; cursor: pointer; white-space: nowrap; }
 .label-option input[type="radio"] { margin: 0; cursor: pointer; }
 .label-option span { cursor: pointer; }
 
@@ -2079,6 +2224,11 @@ textarea:disabled { background-color: #f5f5f5; color: #999; cursor: not-allowed;
 .file-tab { flex: 1; padding: 8px 4px; background: transparent; border: none; border-bottom: 2px solid transparent; cursor: pointer; font-size: 0.8125rem; color: #666; transition: all 0.2s; }
 .file-tab:hover { color: #7E4C64; background: #f8f4f6; }
 .file-tab.active { color: #7E4C64; border-bottom-color: #7E4C64; font-weight: 600; }
+
+/* Sort Control */
+.sort-control { display: flex; align-items: center; gap: 6px; margin: 8px 0; font-size: 0.75rem; }
+.sort-control label { color: #666; font-weight: 500; }
+.sort-select { padding: 4px 8px; border: 1px solid #ddd; border-radius: 4px; font-size: 0.75rem; cursor: pointer; }
 
 /* File Badge */
 .file-badge { color: #22c55e; font-weight: bold; margin-left: 4px; }

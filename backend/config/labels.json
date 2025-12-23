@@ -7,9 +7,29 @@
           "color": "#a855f7",
           "id": "anomaly_segment",
           "text": "震荡区间"
+        },
+        {
+          "color": "#f59e0b",
+          "id": "label_1766468646084",
+          "text": "点异常"
+        },
+        {
+          "color": "#84cc16",
+          "id": "label_1766472954139",
+          "text": "区间异常"
+        },
+        {
+          "color": "#10b981",
+          "id": "label_1766476471039",
+          "text": "上下文异常"
         }
       ],
       "name": "特殊异常段"
+    },
+    "cat_1766476898204": {
+      "color": "#6b7280",
+      "labels": [],
+      "name": "其他"
     },
     "drift": {
       "labels": [
@@ -80,18 +100,22 @@
       "labels": [
         {
           "id": "noisy",
-          "text": "有噪声"
+          "text": "高"
         },
         {
           "id": "clean",
-          "text": "无噪声"
+          "text": "中"
         },
         {
           "id": "almost_no_noise",
-          "text": "几乎无噪声"
+          "text": "低"
+        },
+        {
+          "id": "label_1766469170459",
+          "text": "无"
         }
       ],
-      "name": "噪声"
+      "name": "噪声水平"
     },
     "seasonal": {
       "labels": [
@@ -102,6 +126,10 @@
         {
           "id": "no_periodic",
           "text": "无周期"
+        },
+        {
+          "id": "label_1766475567943",
+          "text": "局部有周期"
         }
       ],
       "name": "周期性"
@@ -123,6 +151,10 @@
         {
           "id": "multiple",
           "text": "多段式"
+        },
+        {
+          "id": "label_1766469189296",
+          "text": "无明显趋势"
         }
       ],
       "name": "趋势"

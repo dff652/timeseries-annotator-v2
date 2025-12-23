@@ -6,11 +6,23 @@
   "douff": {
     "password_hash": "scrypt:32768:8:1$E9L7bnz3T2RtfO5z$ccefaca441c9c7adb7d854c4eb76d7920ff787b31bb091aca016e7579398ad8ff574f71d96aaba1f8a88c3ad48a13b6af7aa73cfcc0de2e8b34b07a9531cbe09",
     "name": "douff",
-    "data_path": "/home/douff/数据标注/data/标注数据"
+    "data_path": "/home/douff/数据标注/data/降采样数据"
   },
   "wyx": {
     "password_hash": "scrypt:32768:8:1$liC38ynHPXbXUJ7Q$6675688e92df011928050ad1860eaa5845b3fab644671cdaf303c1671dd044b698115fca100e056588b42cbe407fa6a4ed17bd2f3f0e7ca9b1cad30257478621",
     "name": "wyx",
     "data_path": "/home/wyx"
+  },
+  "lzh": {
+    "password_hash": "scrypt:32768:8:1$vJkXXDNLbSq8Yjy6$777940a7f4d3b5c8997b328d6ddd688e7e4bccfb4953f617da3460790044e25ffeb2644428bada08d68594e5222aa74185894c0965afc78ed6b58ccfeed1e39b",
+    "name": "lzh"
+  },
+  "aym": {
+    "password_hash": "scrypt:32768:8:1$SSAtjGWPLlbs9LN3$e7f96bb2d5df36ecfd55c49c2ad15a2d71354ed418e2c6ac73f378f5fffdfeeb4e841771fb362f65d89bd49b69e0d571b97f2e19c5708a52e7ced1043b9c0725",
+    "name": "aym"
+  },
+  "xpj": {
+    "password_hash": "scrypt:32768:8:1$0Dewt60k2ckQ4pcR$b8b32059f2a793385d3b536755fe818911a913ac14bbad6344e6c959ecf222ff85b0a8331727e78449f6fcfff2738b68929437e4df6481a64dd64d69e491d1e7",
+    "name": "xpj"
   }
 }
