@@ -1,5 +1,7 @@
 import os
 import json
+import tempfile
+import shutil
 from datetime import datetime
 from flask import Blueprint, jsonify, request
 from auth import login_required
@@ -18,11 +20,13 @@ def get_annotations(filename, current_user):
         annotation_file = None
         annotation_data = None
         
+        # Try finding the file by exact name or by searching content
         pattern1 = os.path.join(user_ann_dir, f"{filename}.json")
         if os.path.exists(pattern1):
             annotation_file = pattern1
         
         if not annotation_file:
+            # Fallback search
             for json_file in os.listdir(user_ann_dir):
                 if not json_file.endswith('.json'): continue
                 json_path = os.path.join(user_ann_dir, json_file)
@@ -42,10 +46,16 @@ def get_annotations(filename, current_user):
             with open(annotation_file, 'r', encoding='utf-8') as f:
                 annotation_data = json.load(f)
         
+        # Normalize fields for frontend (expert_output -> expertOutput)
+        annotations = annotation_data.get('annotations', [])
+        for ann in annotations:
+            if 'expert_output' in ann and 'expertOutput' not in ann:
+                ann['expertOutput'] = ann['expert_output']
+        
         return jsonify({
             'success': True,
             'filename': filename,
-            'annotations': annotation_data.get('annotations', []),
+            'annotations': annotations,
             'overall_attribute': annotation_data.get('overall_attribute', {})
         })
     except Exception as e:
@@ -54,9 +64,11 @@ def get_annotations(filename, current_user):
 @annotation_bp.route('/api/annotations/<filename>', methods=['POST'])
 @login_required
 def save_annotations(filename, current_user):
-    """Save annotations for a file"""
+    """Save annotations for a file using atomic write"""
     try:
         data = request.get_json()
+        
+        # Field normalization and structure validation
         if 'filename' in data:
             save_data = data
         else:
@@ -66,16 +78,31 @@ def save_annotations(filename, current_user):
                 'annotations': data.get('annotations', []),
                 'export_time': datetime.now().isoformat()
             }
+            
+        # Ensure consistent naming inside annotations
+        for ann in save_data.get('annotations', []):
+            if 'expertOutput' in ann:
+                ann['expert_output'] = ann['expertOutput'] # Save both for compatibility
         
         user_ann_dir = os.path.join(ANNOTATIONS_DIR, current_user)
         os.makedirs(user_ann_dir, exist_ok=True)
         annotation_file = os.path.join(user_ann_dir, f"{filename}.json")
         
-        with open(annotation_file, 'w', encoding='utf-8') as f:
-            json.dump(save_data, f, ensure_ascii=False, indent=2)
+        # Atomic write using a temporary file
+        fd, temp_path = tempfile.mkstemp(dir=user_ann_dir, text=True)
+        try:
+            with os.fdopen(fd, 'w', encoding='utf-8') as tmp:
+                json.dump(save_data, tmp, ensure_ascii=False, indent=2)
+            os.replace(temp_path, annotation_file)
+        except Exception:
+            if os.path.exists(temp_path):
+                os.remove(temp_path)
+            raise
         
         return jsonify({'success': True, 'message': f'Annotations saved for {filename}'})
     except Exception as e:
+        import traceback
+        print(traceback.format_exc())
         return jsonify({'success': False, 'error': str(e)}), 500
 
 @annotation_bp.route('/api/annotations/<filename>', methods=['DELETE'])
