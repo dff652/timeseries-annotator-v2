@@ -474,6 +474,8 @@ export function drawLabeler(plottingApp) {
         //allow clicking on single points
         toggleSelected(point);
         updateSelection();
+        // Trigger Vue sync
+        $("#handlePointClick").click();
       });
 
     toggleHoverinfo(true);
@@ -490,6 +492,8 @@ export function drawLabeler(plottingApp) {
     } else {
       point.label = '';
     }
+    // Set clicked point for Vue access
+    plottingApp.clickedPoint = point;
   }
 
   /* replot svg after changing series */

@@ -237,8 +237,24 @@ export default {
   mounted() {
     window.vueApp = this;
     this.init();
+    // Add keyboard shortcuts
+    window.addEventListener('keydown', this.handleGlobalKeydown);
+  },
+  beforeDestroy() {
+    window.removeEventListener('keydown', this.handleGlobalKeydown);
   },
   methods: {
+    handleGlobalKeydown(e) {
+      // Ctrl + S to save
+      if ((e.ctrlKey || e.metaKey) && e.key === 's') {
+        e.preventDefault();
+        if (this.canSaveCurrentAnnotation) {
+          this.saveActiveLabel();
+        } else if (this.savedAnnotations.length > 0) {
+          this.saveAnnotationsToServer();
+        }
+      }
+    },
     async init() {
       await this.loadLabels();
       await this.loadCurrentPath();

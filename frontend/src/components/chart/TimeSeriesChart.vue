@@ -16,6 +16,7 @@
     <div style="display:none">
       <button id="updateHover" @click="handleHoverUpdate"></button>
       <button id="updateSelection" @click="handleSelectionUpdate"></button>
+      <button id="handlePointClick" @click="handlePointClick"></button>
       <button id="triggerReplot" @click="replot"></button>
       <button id="triggerRecolor" @click="recolor"></button>
       <button id="clearSeries" @click="$emit('clear-series')"></button>
@@ -126,6 +127,13 @@ export default {
     handleSelectionUpdate() {
       if (this.plottingApp.selection) {
         this.$emit('selection-update', { ...this.plottingApp.selection });
+      }
+    },
+    handlePointClick() {
+      if (this.plottingApp.clickedPoint) {
+        this.$emit('point-click', { ...this.plottingApp.clickedPoint });
+        // Also increment data version to refresh derived stats in parent
+        this.$emit('data-version-inc');
       }
     },
     replot() {
