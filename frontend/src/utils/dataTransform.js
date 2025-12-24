@@ -1,130 +1,74 @@
 /**
- * Data transformation utilities for Time Series Annotator V2
- * Handles conversion between backend API format and D3 expected format
+ * Time Series Data Transformation Utilities
+ * Standardizes data formats between Backend API, Vue State, and D3 Chart.
  */
 
-const { DateTime } = require("luxon");
-
 /**
- * Transform backend API data to D3 chart format
- * IMPORTANT: Keep time as ISO string - LabelerD3.js type() function will convert it
- * 
- * @param {Array} apiData - Data from backend API
- * @returns {Array} - Data formatted for D3
+ * Transforms raw backend API data into a format suitable for D3.js
+ * Ensures consistent field names and numeric types.
+ * @param {Array} apiData - The raw 'data' array from /api/data/{filename}
+ * @returns {Array} - Array of objects with idx, val, series, label, time, x, y
  */
 export function transformForD3(apiData) {
-    return apiData.map((d, idx) => ({
-        id: idx.toString(),
-        val: parseFloat(d.val),
-        time: d.time,  // Keep as ISO string, D3 type() will convert
-        series: d.series || 'value',
-        label: d.label || ''
-    }));
-}
-
-/**
- * Transform data from local CSV upload (time is already DateTime object)
- * This handles the case where file upload already converted to DateTime
- * 
- * @param {Array} csvData - Parsed CSV data with DateTime objects
- * @returns {Array} - Data formatted for D3
- */
-export function transformFromLocalCSV(csvData) {
-    return csvData.map((d, idx) => ({
-        id: idx.toString(),
-        val: parseFloat(d.val),
-        time: d.time,  // Already DateTime object from CSV parsing
-        series: d.series || 'value',
-        label: d.label || ''
-    }));
-}
-
-/**
- * Check if time value is already a DateTime object
- * 
- * @param {*} time - Time value to check
- * @returns {boolean}
- */
-export function isDateTime(time) {
-    return time && typeof time === 'object' && typeof time.toISO === 'function';
-}
-
-/**
- * Ensure time is ISO string format (for API data consistency)
- * 
- * @param {*} time - Time value (string or DateTime)
- * @returns {string} - ISO string
- */
-export function ensureISOString(time) {
-    if (isDateTime(time)) {
-        return time.toISO();
-    }
-    return time;
-}
-
-/**
- * Build annotation export format matching the target JSON structure
- * 
- * @param {Object} options - Annotation options
- * @returns {Object} - Formatted annotation
- */
-export function buildAnnotationExport({
-    overallLabels,
-    localLabels,
-    indexRange,
-    input,
-    output,
-    filename
-}) {
-    const annotation = {
-        categories: {},
-        local_change: {
-            name: "局部变化",
-            categories: {}
-        }
+  if (!apiData || !Array.isArray(apiData)) return [];
+  
+  return apiData.map((d, i) => {
+    const val = parseFloat(d.val);
+    const idx = d.idx !== undefined ? d.idx : i;
+    
+    return {
+      ...d,
+      idx: idx,
+      val: isNaN(val) ? 0 : val,
+      x: idx, // D3 plotting usually uses x for the index/time axis
+      y: isNaN(val) ? 0 : val,
+      series: d.series || 'value',
+      label: d.label || ''
     };
-
-    // Build overall categories
-    Object.entries(overallLabels).forEach(([catId, label]) => {
-        if (label) {
-            annotation.categories[catId] = {
-                name: getCategoryName(catId),
-                labels: [label]
-            };
-        }
-    });
-
-    // Build local change categories
-    localLabels.forEach(label => {
-        const categoryId = label.categoryId || 'custom';
-        if (!annotation.local_change.categories[categoryId]) {
-            annotation.local_change.categories[categoryId] = {
-                name: label.categoryName || categoryId,
-                labels: []
-            };
-        }
-        annotation.local_change.categories[categoryId].labels.push({
-            id: label.id,
-            text: label.text,
-            color: label.color,
-            index: indexRange,
-            input: input || '',
-            output: output || ''
-        });
-    });
-
-    return annotation;
+  });
 }
 
 /**
- * Get display name for category ID
+ * Normalizes annotation data from the backend to ensure backward compatibility
+ * and consistent field naming (e.g., expertOutput vs expert_output).
+ * @param {Object} annData - Raw annotation object from /api/annotations/{filename}
+ * @returns {Object} - Normalized annotation object
  */
-function getCategoryName(catId) {
-    const names = {
-        trend: '趋势',
-        seasonal: '周期性',
-        frequency: '频率',
-        noise: '噪声'
-    };
-    return names[catId] || catId;
+export function normalizeAnnotations(annData) {
+  if (!annData) return { annotations: [], overall_attribute: {} };
+  
+  const annotations = (annData.annotations || []).map(ann => ({
+    ...ann,
+    id: ann.id || `ann_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`,
+    segments: (ann.segments || []).filter(seg => !isNaN(parseInt(seg.start)) && !isNaN(parseInt(seg.end))),
+    // Map both snake_case and camelCase output fields
+    expertOutput: ann.expertOutput || ann.expert_output || '',
+    prompt: ann.prompt || ann.input || ''
+  }));
+  
+  return {
+    filename: annData.filename || '',
+    overall_attribute: annData.overall_attribute || annData.overall_attributes || {},
+    annotations: annotations
+  };
+}
+
+/**
+ * Prepares annotation data for saving to the backend.
+ * Ensures the structure matches the 08-data-schema-spec.md requirement.
+ */
+export function prepareForSave(filename, annotations, overallAttribute) {
+  return {
+    filename,
+    export_time: new Date().toISOString(),
+    annotations: annotations.map(ann => ({
+      id: ann.id,
+      label: ann.label,
+      segments: ann.segments,
+      overall_attributes: ann.overall_attributes || {},
+      prompt: ann.prompt,
+      expertOutput: ann.expertOutput
+    })),
+    overall_attribute: overallAttribute
+  };
 }
