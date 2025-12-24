@@ -10,15 +10,6 @@
     
     <!-- Chart Area -->
     <div class="chart-area" v-show="isChartMode">
-      <!-- Hover Info -->
-      <div id="hoverbox">
-        <div id="hoverinfo" class="hover-card" style="display: none;">
-          <div>时间: {{ hoverinfo.time }}</div>
-          <div>数值: {{ hoverinfo.val }}</div>
-          <div>标签: {{ hoverinfo.label }}</div>
-        </div>
-      </div>
-      
       <!-- Instructions & Toolbar (above chart) -->
       <div class="toolbar" v-if="isChartMode" id="instrSelect">
         <div class="toolbar-row">
@@ -29,7 +20,7 @@
             <span><strong>导航:</strong> <kbd>←</kbd><kbd>→</kbd>平移 | <kbd>↑</kbd><kbd>↓</kbd>或滚轮缩放</span>
           </div>
           <div class="toolbar-section actions-inline">
-            <button class="btn btn-secondary btn-sm" @click="$emit('reset-view')">🔄 重置视图</button>
+            <button class="btn btn-secondary btn-sm" @click="resetView">🔄 重置视图</button>
             <button class="btn btn-warning btn-sm" @click="$emit('clear-labels')">清除标注</button>
           </div>
         </div>
@@ -54,20 +45,162 @@
         </div>
       </div>
       
-      <!-- D3 Chart Container -->
-      <div id="maindiv"></div>
+      <!-- Integrated D3 Chart Component -->
+      <time-series-chart
+        ref="tsChart"
+        :chart-data="chartData"
+        :filename="filename"
+        :series-list="seriesList"
+        :label-list="labelList"
+        :selected-label="selectedLabel"
+        :label-color="labelColor"
+        @selection-update="onSelectionUpdate"
+        @hover-update="onHoverUpdate"
+        @data-version-inc="$emit('data-version-inc')"
+        @clear-series="$emit('clear-series')"
+      />
     </div>
   </main>
 </template>
 
 <script>
+import TimeSeriesChart from './TimeSeriesChart.vue';
+
 export default {
   name: 'ChartArea',
+  components: {
+    TimeSeriesChart
+  },
   props: {
     isChartMode: Boolean,
-    hoverinfo: Object,
+    chartData: {
+      type: Array,
+      default: () => []
+    },
+    filename: String,
+    seriesList: Array,
+    labelList: Array,
+    selectedLabel: String,
+    labelColor: String,
     selectionStats: Object,
     formatNumber: Function
+  },
+  methods: {
+    onSelectionUpdate(selection) {
+      this.$emit('selection-update', selection);
+    },
+    onHoverUpdate(hoverinfo) {
+      // Internal hover info is managed by TimeSeriesChart, 
+      // but we can pass it up if parent needs it
+      this.$emit('hover-update', hoverinfo);
+    },
+    resetView() {
+      if (this.$refs.tsChart) {
+        this.$refs.tsChart.resetView();
+      }
+    }
   }
 };
 </script>
+
+<style scoped>
+.main-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  background: white;
+  border-radius: 8px;
+  box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+  overflow: hidden;
+}
+
+.welcome-section {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  padding: 40px;
+  text-align: center;
+}
+
+.chart-area {
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  width: 100%;
+}
+
+.toolbar {
+  padding: 10px 15px;
+  background: #f9f9f9;
+  border-bottom: 1px solid #eee;
+}
+
+.toolbar-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 8px;
+}
+
+.toolbar-section {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.instr {
+  font-size: 0.75rem;
+  color: #666;
+}
+
+kbd {
+  background-color: #eee;
+  border-radius: 3px;
+  border: 1px solid #b4b4b4;
+  box-shadow: 0 1px 1px rgba(0,0,0,.2),0 2px 0 0 rgba(255,255,255,.7) inset;
+  color: #333;
+  display: inline-block;
+  font-size: .85em;
+  font-weight: 700;
+  line-height: 1;
+  padding: 2px 4px;
+  white-space: nowrap;
+}
+
+.selection-stats-box {
+  background: #fff;
+  border: 1px solid #ddd;
+  border-radius: 4px;
+  padding: 5px 10px;
+  font-size: 0.75rem;
+}
+
+.stats-grid {
+  display: grid;
+  grid-template-columns: auto auto;
+  gap: 2px 10px;
+}
+
+.stat-label { color: #888; }
+.stat-value { font-weight: 600; color: #7E4C64; }
+
+.selectors {
+  display: flex;
+  gap: 15px;
+}
+
+.selector-item {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  font-size: 0.8rem;
+}
+
+.selector-item select {
+  padding: 2px 5px;
+  border-radius: 4px;
+  border: 1px solid #ccc;
+}
+</style>

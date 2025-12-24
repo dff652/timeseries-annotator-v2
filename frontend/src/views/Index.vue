@@ -32,14 +32,23 @@
         @toggle-local-label="toggleLocalLabel"
       />
 
-      <ChartArea 
-        :isChartMode="isChartMode"
-        :hoverinfo="hoverinfo"
-        :selectionStats="selectionStats"
-        :formatNumber="formatNumber"
+      <!-- Center Panel -->
+      <chart-area
+        :is-chart-mode="isChartMode"
+        :chart-data="chartData"
+        :filename="selectedFileName"
+        :series-list="seriesList"
+        :label-list="labelList"
+        :selected-label="activeChartLabel"
+        :label-color="activeLabelColor"
+        :selection-stats="selectionStats"
+        :format-number="formatNumber"
         @upload-click="$refs.fileInput.click()"
-        @reset-view="resetChartView"
+        @selection-update="onSelectionUpdate"
+        @hover-update="updateHoverinfo"
+        @data-version-inc="chartDataVersion++"
         @clear-labels="clearAllLabels"
+        @clear-series="clearSeries"
       />
 
       <RightSidebar 
@@ -70,11 +79,7 @@
 
     <!-- Hidden inputs/triggers -->
     <input type="file" ref="fileInput" @change="fileCheck" accept=".csv" style="display:none">
-    <button id="updateHover" style="display:none" @click="updateHoverinfo"></button>
-    <button id="updateSelection" style="display:none" @click="updateSelectionRange"></button>
-    <button id="triggerReplot" style="display:none"></button>
-    <button id="triggerRecolor" style="display:none"></button>
-    <button id="clearSeries" style="display:none" @click="clearSeries"></button>
+
 
     <!-- Modals -->
     <DirBrowserModal 
@@ -139,6 +144,9 @@ export default {
       loading: false,
       selectedFileName: '',
       isChartMode: false,
+      chartData: [],
+      seriesList: [],
+      labelList: [],
       labels: { overall_attribute: {}, local_change: {} },
       selectedOverallLabels: {},
       hoverinfo: { val: '', time: '', label: '' },
@@ -314,18 +322,13 @@ export default {
     },
     initChart(csvData, filename, seriesList, labelList) {
       this.isChartMode = true;
-      this.$nextTick(() => {
-        const maindiv = document.getElementById('maindiv');
-        if (maindiv) maindiv.innerHTML = '';
-        plottingApp.filename = filename;
-        plottingApp.csvData = csvData;
-        plottingApp.seriesList = seriesList;
-        plottingApp.selectedSeries = seriesList[0] || 'value';
-        plottingApp.refSeries = seriesList[1] || seriesList[0];
-        this.setupSelectors(seriesList);
-        plottingApp.labelList = labelList.map(l => ({ name: l, color: this.generateUniqueColor() }));
-        setTimeout(() => LabelerD3.drawLabeler(plottingApp), 100);
-      });
+      this.chartData = csvData;
+      this.seriesList = seriesList;
+      this.labelList = labelList.map(l => ({ 
+        text: l, 
+        color: this.generateUniqueColor() 
+      }));
+      this.chartDataVersion++;
     },
     setupSelectors(seriesList) {
       const sSelect = document.getElementById('seriesSelect');
@@ -361,9 +364,9 @@ export default {
       return label?.color || this.getCategoryColor(catId);
     },
     updateHoverinfo() { this.hoverinfo = { ...plottingApp.hoverinfo }; },
-    updateSelectionRange() {
-      if (!plottingApp.selection) return;
-      const { start, end, count, minVal, maxVal, mean, std, range } = plottingApp.selection;
+    onSelectionUpdate(selection) {
+      if (!selection) return;
+      const { start, end, count, minVal, maxVal, mean, std, range } = selection;
       this.selectionStats = { start, end, count, minVal, maxVal, mean, std, range };
       let labelToUse = this.currentAnnotation.label || this.findLabelByText(plottingApp.selectedLabel);
       if (!labelToUse) return this.showToast('请先选择一个标签', 'warning');

@@ -150,6 +150,12 @@ def get_data(filename, current_user):
         user_path = users.get(current_user, {}).get('data_path', DATA_DIR)
         filepath = os.path.join(user_path, filename)
         
+        # Support custom downsampling limit from query params
+        try:
+            max_rows = int(request.args.get('limit', 10000))
+        except (ValueError, TypeError):
+            max_rows = 10000
+            
         if not os.path.exists(filepath):
             return jsonify({'success': False, 'error': 'File not found'}), 404
         
@@ -161,76 +167,107 @@ def get_data(filename, current_user):
         else:
             return jsonify({'success': False, 'error': 'Unsupported file format'}), 400
         
+        if df.empty:
+            return jsonify({'success': False, 'error': 'File is empty'}), 400
+
         original_len = len(df)
         columns = df.columns.tolist()
         
+        # ============ Smart Column Detection ============
         time_col, val_col, series_col, label_col = None, None, None, None
-        for col in columns:
-            if col == '' or str(col).startswith('Unnamed'): continue
-            if time_col is None:
-                if pd.api.types.is_datetime64_any_dtype(df[col]):
-                    time_col = col
-                elif df[col].dtype == 'object':
-                    try:
-                        pd.to_datetime(df[col].dropna().head(5), errors='raise')
-                        time_col = col
-                    except: pass
-            if pd.api.types.is_numeric_dtype(df[col]):
-                if val_col is None: val_col = col
-            elif df[col].dtype == 'object' and col != time_col:
-                if df[col].nunique() <= 10 and series_col is None: series_col = col
-                elif label_col is None: label_col = col
         
-        if val_col is None and len(columns) >= 2:
-            for col in columns:
-                if col != time_col and not str(col).startswith('Unnamed'):
-                    val_col = col
-                    break
-        if val_col is None and len(columns) >= 1: val_col = columns[-1]
+        # Sort columns to prioritize certain names
+        priority_cols = ['time', 'date', 'value', 'val', 'series', 'label']
+        sorted_cols = sorted(columns, key=lambda c: next((i for i, p in enumerate(priority_cols) if p in str(c).lower()), len(priority_cols)))
+
+        for col in sorted_cols:
+            if not str(col) or str(col).startswith('Unnamed'): continue
+            
+            col_lower = str(col).lower()
+            # Time detection
+            if time_col is None and any(p in col_lower for p in ['time', 'date', '时间', '日期']):
+                time_col = col
+            # Value detection
+            if val_col is None and (pd.api.types.is_numeric_dtype(df[col]) or any(p in col_lower for p in ['val', 'value', '数值', '值'])):
+                val_col = col
+            # Series detection
+            if series_col is None and any(p in col_lower for p in ['series', 'category', '序列', '类型']):
+                series_col = col
+            # Label detection
+            if label_col is None and any(p in col_lower for p in ['label', 'annotation', '标签', '标注']):
+                label_col = col
+        
+        # Robust fallback for value column
+        if val_col is None:
+            numeric_cols = df.select_dtypes(include=[np.number]).columns
+            if len(numeric_cols) > 0:
+                val_col = numeric_cols[0]
+            elif len(columns) > 0:
+                val_col = columns[-1]
         
         if val_col is None:
-            return jsonify({'success': False, 'error': 'No numeric value column found'}), 400
+            return jsonify({'success': False, 'error': 'No suitable value column found'}), 400
             
+        # Clean value data
         df[val_col] = pd.to_numeric(df[val_col], errors='coerce').fillna(0.0)
         
-        MAX_ROWS = 10000
+        # ============ M4 Downsampling ============
         downsampled = False
-        if original_len > MAX_ROWS:
+        if original_len > max_rows:
             try:
-                indices = M4Downsampler().downsample(np.arange(original_len, dtype=np.float64), df[val_col].values.astype(np.float64), n_out=MAX_ROWS)
-                df = df.iloc[indices].reset_index(drop=True)
+                # Ensure we have numeric index for downsampling
+                y_values = df[val_col].values.astype(np.float64)
+                x_values = np.arange(len(y_values), dtype=np.float64)
+                
+                indices = M4Downsampler().downsample(x_values, y_values, n_out=max_rows)
+                # Ensure indices are within bounds and sorted
+                indices = np.sort(indices)
+                df = df.iloc[indices].copy()
                 downsampled = True
-            except:
-                df = df.iloc[::(original_len // MAX_ROWS)].reset_index(drop=True)
+            except Exception as e:
+                print(f"Downsampling error: {e}")
+                step = max(1, original_len // max_rows)
+                df = df.iloc[::step].copy()
                 downsampled = True
         
-        data = []
+        # ============ Response Data Construction ============
         series_set = set()
+        # Optimization: use to_dict for faster conversion if possible, 
+        # but manual loop allows fine-grained control over naming
+        res_data = []
         for idx, row in df.iterrows():
-            val_value = float(row[val_col])
-            series_value = str(row[series_col]) if series_col and pd.notna(row[series_col]) else (val_col or 'value')
-            series_set.add(series_value)
-            label_value = str(row[label_col]) if label_col and pd.notna(row[label_col]) else ''
+            s_val = str(row[series_col]) if series_col and pd.notna(row[series_col]) else (val_col or 'value')
+            series_set.add(s_val)
             
-            data.append({
-                'idx': idx,
-                'time': idx,
-                'val': val_value,
-                'series': series_value,
-                'label': label_value
+            res_data.append({
+                'idx': int(idx),
+                'time': int(idx), # D3 uses this for X-axis
+                'val': float(row[val_col]),
+                'series': s_val,
+                'label': str(row[label_col]) if label_col and pd.notna(row[label_col]) else ''
             })
         
         return jsonify({
             'success': True,
             'filename': filename,
             'columns': columns,
-            'data': data,
+            'data': res_data,
             'seriesList': list(series_set),
             'labelList': [],
             'useIndexMode': True,
             'originalLength': original_len,
             'downsampled': downsampled,
-            'detectedColumns': {'time': time_col, 'value': val_col, 'series': series_col, 'label': label_col}
+            'count': len(res_data),
+            'detectedColumns': {
+                'time': str(time_col) if time_col else None,
+                'value': str(val_col) if val_col else None,
+                'series': str(series_col) if series_col else None,
+                'label': str(label_col) if label_col else None
+            }
         })
+    except Exception as e:
+        import traceback
+        print(traceback.format_exc())
+        return jsonify({'success': False, 'error': str(e)}), 500
     except Exception as e:
         return jsonify({'success': False, 'error': str(e)}), 500
