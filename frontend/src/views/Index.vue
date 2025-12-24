@@ -1,14 +1,11 @@
 <template>
   <div class="app-container">
     <!-- Navbar -->
-    <nav class="navbar">
-      <h1 class="navbar-brand">📊 时序标注工具</h1>
-      <span class="navbar-file" v-if="selectedFileName">{{ selectedFileName }}</span>
-      <div class="navbar-user">
-        <span class="user-name">👤 {{ currentUser }}</span>
-        <button class="btn-logout" @click="logout">登出</button>
-      </div>
-    </nav>
+    <app-navbar 
+      :selected-file-name="selectedFileName" 
+      :current-user="currentUser" 
+      @logout="logout"
+    />
     
     <!-- Main Layout -->
     <div class="main-layout" :class="{ 'no-file': !isChartMode }">
@@ -378,6 +375,7 @@
 </template>
 
 <script>
+import AppNavbar from '@/components/layout/AppNavbar.vue'
 import * as LabelerD3 from "@/assets/js/LabelerD3.js"
 const { DateTime } = require("luxon");
 
@@ -393,6 +391,9 @@ let colorIndex = 0;
 
 export default {
   name: 'Index',
+  components: {
+    AppNavbar
+  },
   data() {
     return {
       // User info
@@ -2087,36 +2088,6 @@ kbd { display: inline-block; border: 1px solid #ccc; border-radius: 4px; padding
 <style scoped>
 /* App Container */
 .app-container { min-height: 100vh; background: #f5f5f5; }
-
-/* Navbar */
-.navbar {
-  display: flex;
-  align-items: center;
-  justify-content: space-between;
-  padding: 12px 20px;
-  background: #fff;
-  border-bottom: 1px solid #eee;
-  position: sticky;
-  top: 0;
-  z-index: 100;
-}
-.navbar-brand { margin: 0; font-size: 1.125rem; font-weight: 600; color: #333; }
-.navbar-file { color: #666; font-size: 0.875rem; margin-left: auto; margin-right: 16px; }
-.navbar-user { display: flex; align-items: center; gap: 12px; }
-.user-name { font-size: 0.875rem; color: #555; }
-.btn-logout {
-  padding: 6px 16px;
-  background: #f5f5f5;
-  border: 1px solid #ddd;
-  border-radius: 4px;
-  font-size: 0.8125rem;
-  cursor: pointer;
-  transition: all 0.2s;
-}
-.btn-logout:hover { background: #e8e8e8; border-color: #ccc; }
-
-.nav-btn { background: white; border: none; color: #7E4C64; padding: 6px 14px; border-radius: 4px; cursor: pointer; font-weight: 500; font-size: 0.875rem; }
-.nav-btn:hover { background: #f0f0f0; }
 
 /* Layout */
 .main-layout { display: grid; grid-template-columns: 280px 1fr 300px; gap: 16px; padding: 16px; min-height: calc(100vh - 60px); }
