@@ -113,6 +113,7 @@
 import * as LabelerD3 from "@/assets/js/LabelerD3.js"
 import { dataService } from '@/api/dataService'
 import { transformForD3 } from '@/utils/dataTransform'
+import * as labelUtils from '@/utils/labelUtils'
 import MainNavbar from '@/components/layout/MainNavbar.vue'
 import LeftSidebar from '@/components/layout/LeftSidebar.vue'
 import RightSidebar from '@/components/layout/RightSidebar.vue'
@@ -374,10 +375,11 @@ export default {
       this.annotationVersion++;
     },
     isLocalLabelSelected(id) { return this.currentAnnotation.label?.id === id; },
-    getCategoryColor(catId) { return this.labels.local_change?.[catId]?.color || this.categoryColors[catId] || this.categoryColors.default; },
+    getCategoryColor(catId) {
+      return labelUtils.getCategoryColor(catId, this.labels, this.categoryColors);
+    },
     getLabelColor(catId, labelId) {
-      const label = this.labels.local_change?.[catId]?.labels?.find(l => l.id === labelId);
-      return label?.color || this.getCategoryColor(catId);
+      return labelUtils.getLabelColor(catId, labelId, this.labels, this.categoryColors);
     },
     updateHoverinfo() { this.hoverinfo = { ...plottingApp.hoverinfo }; },
     onSelectionUpdate(selection) {
@@ -393,11 +395,7 @@ export default {
       this.showToast(`已添加数据段: ${start}-${end}`, 'success');
     },
     findLabelByText(text) {
-      for (const [catId, cat] of Object.entries(this.localCategories)) {
-        const label = cat.labels?.find(l => l.text === text);
-        if (label) return { id: label.id, text: label.text, color: label.color || this.getCategoryColor(catId), categoryId: catId, categoryName: cat.name };
-      }
-      return null;
+      return labelUtils.findLabelByText(text, this.localCategories, this.categoryColors);
     },
     saveActiveLabel() {
       const stats = this.chartLabelStats.filter(s => s.count > 0);
@@ -507,8 +505,7 @@ export default {
       target[catId].labels.splice(idx, 1);
     },
     generateUniqueColor() {
-      const palette = ['#ef4444', '#f97316', '#f59e0b', '#eab308', '#84cc16', '#22c55e', '#10b981', '#14b8a6', '#3b82f6', '#8b5cf6'];
-      return palette[Math.floor(Math.random() * palette.length)];
+      return labelUtils.generateUniqueColor();
     },
     formatNumber(v) { return v?.toFixed(4) || '-'; },
     showToast(message, type = 'info') {

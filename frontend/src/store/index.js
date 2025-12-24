@@ -6,10 +6,20 @@ export const store = Vue.observable({
   currentPath: '',
   selectedFileName: '',
   isChartMode: false,
-  toast: { show: false, message: '', type: 'info' }
+  toast: { show: false, message: '', type: 'info' },
+  history: [],
+  historyIndex: -1
 });
 
 export const mutations = {
+  pushHistory(data) {
+    // Basic undo/redo logic
+    const stateSnapshot = JSON.parse(JSON.stringify(data));
+    store.history = store.history.slice(0, store.historyIndex + 1);
+    store.history.push(stateSnapshot);
+    if (store.history.length > 20) store.history.shift();
+    store.historyIndex = store.history.length - 1;
+  },
   setCurrentUser(user) {
     store.currentUser = user;
   },
