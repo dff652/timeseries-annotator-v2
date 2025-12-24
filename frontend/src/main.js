@@ -5,6 +5,9 @@ import router from './router'
 // Import Bootstrap CSS
 import 'bootstrap/dist/css/bootstrap.min.css'
 
+// Import Global D3 Styles
+import '@/assets/css/d3-global.css'
+
 // Global components
 import BaseView from '@/components/BaseView'
 import BaseNavbar from '@/components/BaseNavbar'
