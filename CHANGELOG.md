@@ -1,5 +1,41 @@
 # Changelog - 时序标注工具 V2
 
+## [0.3.7] - 2025-12-24
+
+### 🐛 关键Bug修复
+
+#### 路径输入框Enter键无效
+- **问题** - 用户在路径输入框输入路径后按Enter键无法设置路径
+- **根因** - 前端模板绑定了不存在的方法`setPath`，实际方法名为`setDataPath`
+- **修复** - [Index.vue:30](frontend/src/views/Index.vue#L30) 修改 `@keyup.enter="setPath"` → `@keyup.enter="setDataPath"`
+- **影响** - 用户现在可以通过输入路径+Enter键快速设置数据目录
+
+#### 标注状态显示问题
+- **问题** - 完成100个文件标注后，界面只显示1个文件有标注状态（✓），其他99个未显示
+- **根因1** - 异常文件名 `数据集zhlh_100_TI_40301.PV.csv.json` 多了`.csv`后缀
+- **根因2** - 后端Pattern 1-4无法匹配CSV文件名已有"数据集"前缀的情况
+- **修复** - 重命名异常文件 + 添加Pattern 5直接替换`.csv` → `.json`
+- **优化** - 调整pattern匹配顺序，将最常用的Pattern 5放首位，提升查找效率
+
+### 🔧 技术改进
+
+#### 后端API优化 ([app.py:172-194](backend/app.py#L172-194))
+- **新增Pattern 5** - `f.replace('.csv', '.json')` 支持直接扩展名替换
+- **优化匹配顺序** - `[pattern5, pattern1, pattern4, pattern3, pattern2]` 按使用频率排序
+- **向后兼容** - 保留所有5种pattern，确保历史文件命名格式兼容
+- **性能提升** - 对于当前100个文件，从平均4次失败检查减少到1次成功匹配
+
+### 📁 文件改动
+
+#### Frontend
+- **[MODIFY] views/Index.vue** - 修复路径输入Enter键绑定（1行）
+
+#### Backend
+- **[MODIFY] app.py** - 添加Pattern 5并优化匹配顺序（5行）
+- **[RENAME] annotations/douff/** - 重命名1个异常JSON文件
+
+---
+
 ## [0.3.6] - 2025-12-23
 
 ### ✨ 核心功能改进

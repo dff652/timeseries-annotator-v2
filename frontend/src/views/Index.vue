@@ -27,7 +27,7 @@
           </div>
           <!-- 路径输入 -->
           <div class="path-control">
-            <input type="text" v-model="dataPath" placeholder="输入路径" class="input input-sm" @keyup.enter="setPath">
+            <input type="text" v-model="dataPath" placeholder="输入路径" class="input input-sm" @keyup.enter="setDataPath">
             <button class="btn btn-primary btn-xs" @click="openDirBrowser">📂</button>
           </div>
           <p class="current-path" v-if="currentPath">{{ currentPath }}</p>
@@ -1606,7 +1606,7 @@ export default {
       const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
       a.href = url;
-      a.download = `annotations_${this.selectedFileName.replace('.csv', '')}.json`;
+      a.download = `${this.selectedFileName}.json`;
       a.click();
       URL.revokeObjectURL(url);
     },

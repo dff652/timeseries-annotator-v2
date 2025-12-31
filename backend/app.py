@@ -169,19 +169,25 @@ def get_files(current_user):
                 # Check for annotations in user's annotation directory
                 user_ann_dir = os.path.join(ANNOTATIONS_DIR, current_user)
                 
-                # Try multiple annotation file name patterns
+                # Try multiple annotation file name patterns (ordered by frequency)
                 annotation_file = None
                 annotation_count = 0
                 has_annotations = False
                 
-                # Pattern 1: filename.csv.json (standard)
+                # Pattern 5: Direct replacement .csv -> .json (most common for current files)
+                # This matches files like: 数据集zhlh_100_XXX.PV.json for CSV files like: 数据集zhlh_100_XXX.PV.csv
+                pattern5 = os.path.join(user_ann_dir, f.replace('.csv', '.json'))
+                # Pattern 1: filename.csv.json (standard auto-save format)
                 pattern1 = os.path.join(user_ann_dir, f"{f}.json")
-                # Pattern 2: annotations_数据集filename.json (exported)
-                pattern2 = os.path.join(user_ann_dir, f"annotations_数据集{f.replace('.csv', '')}.json")
-                # Pattern 3: annotations_filename.json (exported without 数据集)
+                # Pattern 4: 数据集filename.json (for CSV files without 数据集 prefix)
+                # This matches files like: 数据集zhlh_100_XXX.json for CSV files like: zhlh_100_XXX.csv
+                pattern4 = os.path.join(user_ann_dir, f"数据集{f.replace('.csv', '')}.json")
+                # Pattern 3: annotations_filename.json (old export without 数据集)
                 pattern3 = os.path.join(user_ann_dir, f"annotations_{f.replace('.csv', '')}.json")
+                # Pattern 2: annotations_数据集filename.json (old export format)
+                pattern2 = os.path.join(user_ann_dir, f"annotations_数据集{f.replace('.csv', '')}.json")
                 
-                for pattern in [pattern1, pattern2, pattern3]:
+                for pattern in [pattern5, pattern1, pattern4, pattern3, pattern2]:
                     if os.path.exists(pattern):
                         annotation_file = pattern
                         print(f"  -> Found annotation: {os.path.basename(pattern)}")
