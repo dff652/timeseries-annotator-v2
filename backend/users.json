@@ -6,7 +6,7 @@
   "douff": {
     "password_hash": "scrypt:32768:8:1$E9L7bnz3T2RtfO5z$ccefaca441c9c7adb7d854c4eb76d7920ff787b31bb091aca016e7579398ad8ff574f71d96aaba1f8a88c3ad48a13b6af7aa73cfcc0de2e8b34b07a9531cbe09",
     "name": "douff",
-    "data_path": "/home/douff/数据标注/data/降采样数据"
+    "data_path": "/home/dff652/ts_ad/deepanalyze"
   },
   "wyx": {
     "password_hash": "scrypt:32768:8:1$liC38ynHPXbXUJ7Q$6675688e92df011928050ad1860eaa5845b3fab644671cdaf303c1671dd044b698115fca100e056588b42cbe407fa6a4ed17bd2f3f0e7ca9b1cad30257478621",

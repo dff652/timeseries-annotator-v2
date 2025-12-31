@@ -26,8 +26,18 @@
         </div>
         <div class="toolbar-row">
           <div class="toolbar-section selectors" id="selectors">
-            <div class="selector-item"><label>主序列:</label><select id="seriesSelect"></select></div>
-            <div class="selector-item"><label>参考序列:</label><select id="referenceSelect"></select></div>
+            <div class="selector-item">
+              <label>主序列:</label>
+              <select v-model="localSelectedSeries" @change="onSeriesChange">
+                <option v-for="s in seriesList" :key="'main_'+s" :value="s">{{ s }}</option>
+              </select>
+            </div>
+            <div class="selector-item">
+              <label>参考序列:</label>
+              <select v-model="localRefSeries" @change="onSeriesChange">
+                <option v-for="s in seriesList" :key="'ref_'+s" :value="s">{{ s }}</option>
+              </select>
+            </div>
           </div>
           <!-- Selection Stats -->
           <div class="toolbar-section selection-stats-box" v-if="selectionStats">
@@ -64,7 +74,7 @@
 </template>
 
 <script>
-import TimeSeriesChart from './TimeSeriesChart.vue';
+import TimeSeriesChart from '../chart/TimeSeriesChart.vue';
 
 export default {
   name: 'ChartArea',
@@ -85,7 +95,29 @@ export default {
     selectionStats: Object,
     formatNumber: Function
   },
+  data() {
+    return {
+      localSelectedSeries: '',
+      localRefSeries: ''
+    };
+  },
+  watch: {
+    seriesList: {
+      handler(newList) {
+        if (newList && newList.length > 0) {
+          this.localSelectedSeries = newList[0];
+          this.localRefSeries = newList[1] || newList[0];
+        }
+      },
+      immediate: true
+    }
+  },
   methods: {
+    onSeriesChange() {
+      if (this.$refs.tsChart) {
+        this.$refs.tsChart.updateSeries(this.localSelectedSeries, this.localRefSeries);
+      }
+    },
     onSelectionUpdate(selection) {
       this.$emit('selection-update', selection);
     },

@@ -998,6 +998,14 @@ export function drawLabeler(plottingApp) {
     updateSelection();
   });
 
+  $("#updateSelection").click(function () {
+    updateSelection();
+  });
+
+  $("#triggerRecolor").click(function () {
+    updateSelection();
+  });
+
   $("#export").click(function () {
     var csvContent = plottingApp.headerStr + "\n";
 

@@ -5,7 +5,7 @@
     "author": "TS-Annotator Team",
     "private": true,
     "scripts": {
-        "dev": "webpack serve --config build/webpack.dev.conf.js",
+        "dev": "webpack serve --config build/webpack.dev.conf.js --port 3003",
         "build": "webpack --config build/webpack.prod.conf.js"
     },
     "dependencies": {

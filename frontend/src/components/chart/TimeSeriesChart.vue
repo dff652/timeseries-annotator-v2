@@ -82,18 +82,32 @@ export default {
     labelColor(newVal) {
       if (this.plottingApp) {
         this.plottingApp.labelColor = newVal;
+        // Force D3 to update its internal color state if needed
+        if (this.plottingApp.main) {
+          this.recolor();
+        }
       }
     }
   },
   mounted() {
     // Expose this component to window for D3 legacy access
-    // This allows LabelerD3.js to find our handlers
     window.plottingApp = this.plottingApp;
+    // Add direct reference back to vue component for D3 callbacks
+    this.plottingApp.vue = this;
+    
     if (this.chartData && this.chartData.length > 0) {
       this.initChart();
     }
   },
   methods: {
+    updateSeries(selected, ref) {
+      if (this.plottingApp) {
+        this.plottingApp.selectedSeries = selected;
+        this.plottingApp.refSeries = ref;
+        // Trigger D3 internal replot
+        this.replot();
+      }
+    },
     initChart() {
       const container = this.$refs.maindiv;
       if (!container) return;
@@ -142,7 +156,8 @@ export default {
       }
     },
     recolor() {
-      // Logic for force-refreshing colors if needed
+      // Force D3 to update point styles
+      $("#triggerRecolor").click();
       this.$emit('data-version-inc');
     },
     resetView() {

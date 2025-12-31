@@ -4,7 +4,7 @@
 
 ## 项目状态
 
-🟢 **当前版本**: v0.3.6 (2025-12-23)
+🟢 **当前版本**: v0.3.7 (2025-12-31)
 
 ## 功能特性
 
@@ -145,23 +145,42 @@ backend/annotations/
 
 ```
 timeseries-annotator-v2/
-├── backend/              # Flask后端
-│   ├── app.py           # API入口
-│   ├── auth.py          # JWT认证
-│   ├── manage_users.py  # 用户管理工具
-│   ├── users.json       # 用户配置
-│   ├── config/          # 配置文件
-│   └── annotations/     # 用户标注存储
-│       ├── admin/
-│       ├── alice/
-│       └── bob/
-├── frontend/            # Vue.js前端
+├── backend/                    # Flask后端
+│   ├── app.py                  # API入口 (蓝图注册)
+│   ├── auth.py                 # JWT认证模块
+│   ├── config.py               # 路径配置中心
+│   ├── manage_users.py         # 用户管理工具
+│   ├── users.json              # 用户配置
+│   ├── routes/                 # API路由蓝图
+│   │   ├── annotation_routes.py
+│   │   ├── auth_routes.py
+│   │   ├── data_routes.py
+│   │   └── label_routes.py
+│   ├── config/                 # 标签配置
+│   └── annotations/            # 用户标注存储
+│       └── {username}/
+├── frontend/                   # Vue.js前端
 │   ├── src/
-│   │   ├── views/       # Index.vue主页 + Login.vue登录页
-│   │   └── assets/js/   # LabelerD3.js图表逻辑
+│   │   ├── views/              # 页面组件
+│   │   │   ├── Index.vue       # 主页
+│   │   │   └── Login.vue       # 登录页
+│   │   ├── components/         # 可复用组件
+│   │   │   ├── chart/          # 图表组件
+│   │   │   │   └── TimeSeriesChart.vue
+│   │   │   ├── layout/         # 布局组件
+│   │   │   │   ├── ChartArea.vue
+│   │   │   │   ├── LeftSidebar.vue
+│   │   │   │   └── RightSidebar.vue
+│   │   │   └── modals/         # 弹窗组件
+│   │   ├── api/                # API服务层
+│   │   ├── utils/              # 工具函数
+│   │   └── assets/js/          # D3图表逻辑
+│   │       └── LabelerD3.js
 │   └── package.json
-├── CHANGELOG.md         # 版本更新日志
-└── docs/                # 文档目录
+├── docs/                       # 文档目录
+│   └── v2-refactor/            # 重构文档
+├── CHANGELOG.md                # 版本更新日志
+└── README.md
 ```
 
 ## 技术栈

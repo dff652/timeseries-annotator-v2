@@ -1,5 +1,50 @@
 # Changelog - 时序标注工具 V2
 
+## [0.3.7] - 2025-12-31
+
+### 🔧 后端修复
+
+#### 模块导入路径修复
+- **app.py 路径配置** - 添加 `sys.path` 配置，确保 Blueprint 模块能正确导入 `backend/` 目录下的依赖（如 `auth.py`）
+- **路由蓝图修复** - 在 `annotation_routes.py`、`auth_routes.py`、`data_routes.py`、`label_routes.py` 头部统一添加 `sys.path` 修复
+- **用户路径更新** - 更新 `douff` 用户的数据目录配置
+
+### ✨ 前端改进
+
+#### 序列选择器 Vue 化重构
+- **Vue 驱动交互** - 将原生 jQuery 序列选择器改为 Vue `v-model` 驱动
+- **本地状态管理** - 新增 `localSelectedSeries`/`localRefSeries` 数据属性
+- **图表联动** - 实现 `onSeriesChange()` 方法，切换序列时自动更新 D3 图表
+
+#### TimeSeriesChart 组件增强
+- **updateSeries() 方法** - 新增序列切换支持，触发 D3 重绘
+- **labelColor watcher 增强** - 切换颜色时自动触发 `recolor()`
+- **Vue 实例暴露** - 添加 `this.plottingApp.vue = this` 供 D3 回调使用
+
+#### LabelerD3.js 适配
+- **新增按钮处理器** - 添加 `#updateSelection` 和 `#triggerRecolor` 点击事件
+
+#### 开发配置
+- **端口固定** - 开发服务器端口从动态改为固定 `3003`
+
+### 📚 文档
+
+- **[NEW] 04-api-reference-v2.md** - API 参考手册（重构版）
+- **[NEW] 13-refactor-progress-report.md** - v2 重构进展汇报
+
+### 📁 文件改动
+
+| 文件 | 变更 |
+|------|------|
+| `backend/app.py` | +7 (sys.path 配置) |
+| `backend/routes/*.py` (4个) | +4 (模块导入修复) |
+| `frontend/package.json` | 端口改为 3003 |
+| `frontend/src/assets/js/LabelerD3.js` | +8 (按钮处理器) |
+| `frontend/src/components/chart/TimeSeriesChart.vue` | +19 (序列切换) |
+| `frontend/src/components/layout/ChartArea.vue` | +38 (Vue 选择器) |
+
+---
+
 ## [0.3.6] - 2025-12-23
 
 ### ✨ 核心功能改进
