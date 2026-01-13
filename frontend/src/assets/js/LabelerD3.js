@@ -162,6 +162,9 @@ export function drawLabeler(plottingApp) {
   plottingApp.axisBounds = {},
     plottingApp.hoverinfo = {};
 
+  // CSV export header (fix CR-02)
+  plottingApp.headerStr = "series,idx,val,label";
+
   // Initialize immediately since this is called after DOM is ready (via Vue nextTick + setTimeout)
   init();
 
@@ -1010,9 +1013,13 @@ export function drawLabeler(plottingApp) {
     var csvContent = plottingApp.headerStr + "\n";
 
     plottingApp.allData.forEach(function (dataArray) {
-      var date = dataArray.actual_time.toISO();
-      let row = dataArray.series + "," + date
-        + "," + dataArray.val + "," + dataArray.label;
+      // Fix CR-02: Handle numeric index format (post-refactor)
+      var idx = dataArray.actual_time;
+      if (typeof idx === 'object' && idx.toISO) {
+        idx = idx.toISO();  // Backward compatibility for DateTime objects
+      }
+      let row = dataArray.series + "," + idx
+        + "," + dataArray.val + "," + (dataArray.label || '');
       csvContent += row + "\n";
     });
     var saveData = (function () {

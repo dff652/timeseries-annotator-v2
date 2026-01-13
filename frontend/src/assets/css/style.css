@@ -108,8 +108,14 @@ textarea:disabled { background-color: #f5f5f5; color: #999; cursor: not-allowed;
 .segment-index-area { min-height: 120px; max-height: 150px; overflow-y: auto; border: 1px solid #e8e8e8; border-radius: 6px; background: #fafafa; }
 .empty-placeholder { display: flex; align-items: center; justify-content: center; height: 120px; color: #999; font-size: 0.875rem; text-align: center; }
 .segments-list { display: flex; flex-direction: column; gap: 4px; padding: 8px; }
-.segment-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: white; border-radius: 4px; font-size: 0.8125rem; }
+.segment-item { display: flex; align-items: center; gap: 6px; padding: 4px 8px; background: white; border-radius: 4px; font-size: 0.8125rem; cursor: pointer; transition: background 0.15s; }
+.segment-item:hover { background: #f0f0f0; }
 .segment-range { font-family: monospace; font-weight: 500; }
+
+/* Clickable elements */
+.clickable { cursor: pointer; transition: all 0.15s ease; }
+.clickable:hover { opacity: 0.85; transform: translateY(-1px); }
+.segment-badge.clickable:hover { background: #d1d5db; }
 
 /* Stats */
 .selection-stats-box { background: #f8f4f6; border: 1px solid #e8dce3; border-radius: 6px; padding: 8px 14px; margin-left: auto; }

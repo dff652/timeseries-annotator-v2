@@ -215,7 +215,12 @@ export default {
       if (!this.activeChartLabel || !window.plottingApp?.allData) return [];
       const indices = window.plottingApp.allData
         .filter(d => d.label === this.activeChartLabel)
-        .map(d => parseInt(d.time) || 0)
+        .map(d => {
+          // D3 的 type() 函数将索引存储在 actual_time 和 time 字段
+          // 优先级：actual_time (D3设置) > time > idx
+          const idx = d.actual_time !== undefined ? d.actual_time : (d.time !== undefined ? d.time : d.idx);
+          return parseInt(idx) || 0;
+        })
         .sort((a, b) => a - b);
       if (indices.length === 0) return [];
       const segments = [];
@@ -232,7 +237,15 @@ export default {
     },
     activeLabelColor() {
       if (!this.activeChartLabel) return '#7E4C64';
-      return this.chartLabelStats.find(s => s.text === this.activeChartLabel)?.color || '#7E4C64';
+      // Priority 1: Get color from currentAnnotation.label (for newly selected labels)
+      if (this.currentAnnotation.label?.text === this.activeChartLabel && this.currentAnnotation.label?.color) {
+        return this.currentAnnotation.label.color;
+      }
+      // Priority 2: Get color from chartLabelStats (for labels with existing points)
+      const fromStats = this.chartLabelStats.find(s => s.text === this.activeChartLabel);
+      if (fromStats?.color) return fromStats.color;
+      // Fallback
+      return '#7E4C64';
     }
   },
   mounted() {
@@ -317,6 +330,24 @@ export default {
       }
       return sorted;
     },
+    async loadResultFile(file) {
+      this.selectedResultFile = file.name;
+      this.showToast('加载标注结果: ' + file.name, 'info');
+      // Load the corresponding CSV file first if not already loaded
+      const csvName = file.name.replace('.json', '.csv');
+      const csvFile = this.csvFiles.find(f => f.name === csvName);
+      if (csvFile && this.selectedFileName !== csvName) {
+        await this.selectFile(csvFile);
+      }
+      // Then load annotations for this file
+      const baseName = file.name.replace('.json', '');
+      try {
+        await this.loadAnnotationsForFile(baseName);
+        this.showToast(`已加载 ${this.savedAnnotations.length} 条标注`, 'success');
+      } catch (e) {
+        this.showToast('加载标注失败', 'error');
+      }
+    },
     async selectFile(file) {
       this.resetStates();
       this.selectedFileName = file.name;
@@ -360,19 +391,25 @@ export default {
     toggleLocalLabel(label, catId) {
       const labelColor = this.getLabelColor(catId, label.id);
       if (this.currentAnnotation.label?.id === label.id) {
+        // Deselect label
         this.$set(this.currentAnnotation, 'label', null);
-        plottingApp.selectedLabel = '';
+        this.activeChartLabel = '';  // Fix: Also clear activeChartLabel
+        window.plottingApp.selectedLabel = '';
+        window.plottingApp.labelColor = '';
       } else {
+        // Select new label
         const labelObj = { id: label.id, text: label.text, color: labelColor, categoryId: catId, categoryName: this.localCategories[catId]?.name };
         this.$set(this.currentAnnotation, 'label', labelObj);
-        plottingApp.selectedLabel = label.text;
-        plottingApp.labelColor = labelColor;
-        if (!plottingApp.labelList) plottingApp.labelList = [];
-        const existing = plottingApp.labelList.find(l => l.name === label.text);
-        if (!existing) plottingApp.labelList.push({ name: label.text, color: labelColor });
+        this.activeChartLabel = label.text;  // Fix: Update activeChartLabel for props
+        window.plottingApp.selectedLabel = label.text;
+        window.plottingApp.labelColor = labelColor;
+        if (!plottingApp.labelList) window.plottingApp.labelList = [];
+        const existing = window.plottingApp.labelList.find(l => l.name === label.text);
+        if (!existing) window.plottingApp.labelList.push({ name: label.text, color: labelColor });
         else existing.color = labelColor;
       }
       this.annotationVersion++;
+      this.chartDataVersion++;  // Fix: Trigger chart update
     },
     isLocalLabelSelected(id) { return this.currentAnnotation.label?.id === id; },
     getCategoryColor(catId) {
@@ -398,23 +435,57 @@ export default {
       return labelUtils.findLabelByText(text, this.localCategories, this.categoryColors);
     },
     saveActiveLabel() {
-      const stats = this.chartLabelStats.filter(s => s.count > 0);
+      // 获取当前激活标签的信息
       const hasContent = (this.currentAnnotation.prompt || '').trim() || (this.currentAnnotation.expertOutput || '').trim();
-      if (stats.length === 0 && !hasContent) return this.showToast('内容为空', 'error');
       
-      stats.forEach(stat => {
+      // 如果没有激活标签且没有文本内容，返回错误
+      if (!this.activeChartLabel && !hasContent) {
+        return this.showToast('请先选择标签并框选区域', 'error');
+      }
+      
+      // 只处理当前激活的标签（而非所有标签）
+      if (this.activeChartLabel && this.activeSegments.length > 0) {
+        const stat = this.chartLabelStats.find(s => s.text === this.activeChartLabel);
+        if (!stat) {
+          return this.showToast('未找到该标签的标注点', 'error');
+        }
+        
         const labelObj = this.findLabelByText(stat.text) || { id: stat.text, text: stat.text, color: stat.color };
-        const annotation = { id: Date.now(), label: labelObj, segments: this.activeSegments, prompt: this.currentAnnotation.prompt || '', expertOutput: this.currentAnnotation.expertOutput || '' };
+        // 深拷贝 segments 避免引用问题
+        const segmentsCopy = JSON.parse(JSON.stringify(this.activeSegments));
+        const annotation = { 
+          id: Date.now(), 
+          label: labelObj, 
+          segments: segmentsCopy, 
+          prompt: this.currentAnnotation.prompt || '', 
+          expertOutput: this.currentAnnotation.expertOutput || '' 
+        };
+        
         const idx = this.savedAnnotations.findIndex(a => a.label.text === labelObj.text);
         if (idx !== -1) {
-          this.savedAnnotations[idx].prompt = annotation.prompt;
-          this.savedAnnotations[idx].expertOutput = annotation.expertOutput;
-        } else this.savedAnnotations.push(annotation);
-      });
-      
-      if (stats.length === 0 && hasContent) {
-        this.savedAnnotations.push({ id: Date.now(), label: { id: 'no_label', text: '无标签', color: '#999' }, segments: [], prompt: this.currentAnnotation.prompt, expertOutput: this.currentAnnotation.expertOutput });
+          // 更新已存在标注：合并 segments
+          const existingSegs = this.savedAnnotations[idx].segments;
+          segmentsCopy.forEach(newSeg => {
+            const exists = existingSegs.some(s => s.start === newSeg.start && s.end === newSeg.end);
+            if (!exists) existingSegs.push(newSeg);
+          });
+          existingSegs.sort((a, b) => a.start - b.start);
+          this.savedAnnotations[idx].prompt = annotation.prompt || this.savedAnnotations[idx].prompt;
+          this.savedAnnotations[idx].expertOutput = annotation.expertOutput || this.savedAnnotations[idx].expertOutput;
+        } else {
+          this.savedAnnotations.push(annotation);
+        }
+      } else if (hasContent) {
+        // 只有文本内容，没有选中区域
+        this.savedAnnotations.push({ 
+          id: Date.now(), 
+          label: { id: 'no_label', text: '无标签', color: '#999' }, 
+          segments: [], 
+          prompt: this.currentAnnotation.prompt, 
+          expertOutput: this.currentAnnotation.expertOutput 
+        });
       }
+      
       this.showToast('已添加标注', 'success');
       this.resetCurrentAnnotation();
       this.saveAnnotationsToServer();
@@ -512,24 +583,158 @@ export default {
       this.toast = { show: true, message, type };
       setTimeout(() => this.toast.show = false, 3000);
     },
-    resetChartView() { if (plottingApp.resetView) plottingApp.resetView(); },
+    resetChartView() { if (plottingApp.resetView) window.plottingApp.resetView(); },
     clearAllLabels() {
-      if (plottingApp.allData) plottingApp.allData.forEach(d => d.label = '');
-      if (plottingApp.main) plottingApp.main.selectAll('.point').attr('style', 'fill: black; stroke: none; opacity: 1;');
+      if (!window.plottingApp || !window.plottingApp.allData) {
+        this.showToast('图表未初始化', 'warning');
+        return;
+      }
+      let count = 0;
+      window.plottingApp.allData.forEach(d => {
+        if (d.label) {
+          d.label = '';
+          count++;
+        }
+      });
+      // 强制刷新所有点的样式
+      if (window.plottingApp.main) {
+        window.plottingApp.main.selectAll('.point')
+          .attr('style', 'fill: black; stroke: none; opacity: 1;');
+      }
+      // 重置 D3 内部状态
+      window.plottingApp.selectedLabel = '';
+      window.plottingApp.labelColor = '';
+      // 重置 Vue 状态
+      this.activeChartLabel = '';
       this.resetCurrentAnnotation();
       this.chartDataVersion++;
+      this.showToast(`已清除所有标注 (${count}点)`, 'success');
     },
-    clearSeries() { if (plottingApp.allData) plottingApp.allData.filter(d => d.series === plottingApp.selectedSeries).forEach(d => d.label = ''); },
+    clearSeries() { if (plottingApp.allData) window.plottingApp.allData.filter(d => d.series === window.plottingApp.selectedSeries).forEach(d => d.label = ''); },
     fileCheck(e) { /* File upload logic */ },
     selectChartLabel(stat) {
       if (this.activeChartLabel === stat.text) this.activeChartLabel = null;
-      else { this.activeChartLabel = stat.text; plottingApp.selectedLabel = stat.text; plottingApp.labelColor = stat.color; }
+      else { this.activeChartLabel = stat.text; window.plottingApp.selectedLabel = stat.text; window.plottingApp.labelColor = stat.color; }
     },
-    clearLabelFromChart(text) { plottingApp.allData.forEach(d => { if (d.label === text) d.label = ''; }); this.chartDataVersion++; },
-    navigateToSegment(seg) { this.panChartToRange(seg.start, seg.end); },
+    navigateToLabelPoints(labelText) {
+      if (!window.plottingApp || !plottingApp.allData || !labelText) return;
+      
+      // Find all points with this label
+      const labeledPoints = window.plottingApp.allData
+        .map((d, idx) => ({ ...d, idx }))
+        .filter(d => d.label === labelText);
+      
+      if (labeledPoints.length === 0) {
+        this.showToast(`未找到 "${labelText}" 的标注点`, 'warning');
+        return;
+      }
+      
+      // Find the range of labeled points
+      const indices = labeledPoints.map(d => d.idx);
+      const minIdx = Math.min(...indices);
+      const maxIdx = Math.max(...indices);
+      
+      this.panChartToRange(minIdx, maxIdx);
+      this.showToast(`定位到 ${labelText}: ${minIdx}-${maxIdx} (${labeledPoints.length}点)`, 'info');
+    },
+    clearLabelFromChart(labelText) {
+      if (!labelText || !window.plottingApp || !window.plottingApp.allData) {
+        this.showToast('无效的标签', 'error');
+        return;
+      }
+      
+      let clearedCount = 0;
+      window.plottingApp.allData.forEach(d => {
+        if (d.label === labelText) {
+          d.label = '';
+          clearedCount++;
+        }
+      });
+      
+      if (clearedCount > 0) {
+        // 刷新图表显示 - 主图和缩略图
+        const updatePointStyle = function(d) {
+          if (d.label) {
+            const labelInfo = window.plottingApp.labelList?.find(l => l.name === d.label);
+            const color = labelInfo?.color || '#7E4C64';
+            return `fill: ${color}; stroke: ${color}; opacity: 0.75;`;
+          }
+          return 'fill: black; stroke: none; opacity: 1;';
+        };
+        
+        if (window.plottingApp.main) {
+          window.plottingApp.main.selectAll('.point').attr('style', updatePointStyle);
+        }
+        if (window.plottingApp.context) {
+          window.plottingApp.context.selectAll('.point').attr('style', updatePointStyle);
+        }
+        
+        // 如果清除的是当前激活标签，重置激活状态
+        if (this.activeChartLabel === labelText) {
+          this.activeChartLabel = '';
+          window.plottingApp.selectedLabel = '';
+          window.plottingApp.labelColor = '';
+        }
+        
+        this.chartDataVersion++;
+        this.showToast(`已清除 "${labelText}" 标签 (${clearedCount}点)`, 'success');
+      } else {
+        this.showToast(`未找到 "${labelText}" 的标注点`, 'warning');
+      }
+    },
+    navigateToSegment(seg) {
+      if (!seg || seg.start === undefined || seg.end === undefined) return;
+      this.panChartToRange(seg.start, seg.end);
+      this.showToast(`定位到: ${seg.start} - ${seg.end}`, 'info');
+    },
     removeSegmentByRange(seg) {
-      plottingApp.allData.forEach(d => { if (parseInt(d.id) >= seg.start && parseInt(d.id) <= seg.end && d.label === this.activeChartLabel) d.label = ''; });
+      if (!seg || seg.start === undefined || seg.end === undefined) {
+        this.showToast('无效的数据段', 'error');
+        return;
+      }
+      if (!window.plottingApp || !window.plottingApp.allData) {
+        this.showToast('图表未初始化', 'warning');
+        return;
+      }
+      // 使用 activeChartLabel 优先，否则尝试清除范围内所有标签
+      const labelToRemove = this.activeChartLabel;
+      
+      // 辅助函数：获取数据点的索引
+      const getIdx = (d) => {
+        const idx = d.actual_time !== undefined ? d.actual_time : (d.time !== undefined ? d.time : d.idx);
+        return parseInt(idx) || 0;
+      };
+      
+      let count = 0;
+      window.plottingApp.allData.forEach(d => {
+        const idx = getIdx(d);
+        if (idx >= seg.start && idx <= seg.end) {
+          // 如果指定了标签只删除该标签，否则删除所有
+          if (!labelToRemove || d.label === labelToRemove) {
+            if (d.label) {
+              d.label = '';
+              count++;
+            }
+          }
+        }
+      });
+      
+      // 强制刷新图表显示
+      if (window.plottingApp.main) {
+        window.plottingApp.main.selectAll('.point')
+          .filter(d => {
+            const idx = getIdx(d);
+            return idx >= seg.start && idx <= seg.end;
+          })
+          .attr('style', 'fill: black; stroke: none; opacity: 1;');
+      }
+      
       this.chartDataVersion++;
+      if (count > 0) {
+        this.showToast(`已清除 ${count} 个点的标签`, 'success');
+      } else {
+        this.showToast('该范围内没有可清除的标签', 'info');
+      }
     },
     editAnnotation(idx) {
       const ann = this.savedAnnotations[idx];
@@ -538,15 +743,82 @@ export default {
       this.editingAnnotationIndex = idx;
     },
     deleteAnnotation(idx) { this.savedAnnotations.splice(idx, 1); this.saveAnnotationsToServer(); },
-    cycleAnnotationSegments(idx) { /* Cycle logic */ },
-    navigateToAnnotationSegment(ann, sidx) { this.panChartToRange(ann.segments[sidx].start, ann.segments[sidx].end); },
-    panChartToRange(start, end) {
-      if (!plottingApp.plot?.context_brush) return;
-      const padding = Math.max((end - start) * 0.5, 20);
-      const extent = [start - padding, end + padding].map(d => plottingApp.context_xscale(d));
-      plottingApp.plot.context_brush.call(plottingApp.context_brush.move, extent);
+    cycleAnnotationSegments(idx) {
+      const ann = this.savedAnnotations[idx];
+      if (!ann || !ann.segments || ann.segments.length === 0) return;
+      
+      // Get current position for this annotation
+      let currentPos = this.annotationCyclePositions[idx] || 0;
+      
+      // Navigate to current segment
+      const seg = ann.segments[currentPos];
+      this.panChartToRange(seg.start, seg.end);
+      this.showToast(`${ann.label.text}: 段 ${currentPos + 1}/${ann.segments.length} (${seg.start}-${seg.end})`, 'info');
+      
+      // Increment position for next click (cycle back to 0)
+      this.$set(this.annotationCyclePositions, idx, (currentPos + 1) % ann.segments.length);
     },
-    downloadAnnotations() { /* Export logic */ }
+    navigateToAnnotationSegment(ann, sidx) {
+      if (!ann || !ann.segments || !ann.segments[sidx]) return;
+      const seg = ann.segments[sidx];
+      this.panChartToRange(seg.start, seg.end);
+      this.showToast(`定位到 ${ann.label.text}: ${seg.start} - ${seg.end}`, 'info');
+    },
+    panChartToRange(start, end) {
+      // 检查图表是否就绪
+      if (!window.plottingApp || !window.plottingApp.plot || !window.plottingApp.context_brush) {
+        console.warn('Chart not ready for panning');
+        this.showToast('图表未就绪', 'warning');
+        return;
+      }
+      
+      // 计算边距（显示段落周围的上下文）
+      const segLen = end - start;
+      const padding = Math.max(segLen * 0.5, 20);  // 至少 20 点边距
+      const newStart = Math.max(0, start - padding);
+      const newEnd = end + padding;
+      
+      // 通过缩略图 brush 更新主图视图
+      try {
+        if (window.plottingApp.context_xscale && window.plottingApp.plot.context_brush) {
+          const newExtent = [newStart, newEnd].map(d => window.plottingApp.context_xscale(d));
+          window.plottingApp.plot.context_brush.call(window.plottingApp.context_brush.move, newExtent);
+        }
+      } catch (e) {
+        console.error('Error panning chart:', e);
+        this.showToast('定位失败', 'error');
+      }
+    },
+    downloadAnnotations() {
+      if (!this.selectedFileName || this.savedAnnotations.length === 0) {
+        this.showToast('没有可导出的标注', 'warning');
+        return;
+      }
+      const exportData = {
+        filename: this.selectedFileName,
+        overall_attribute: this.selectedOverallLabels,
+        annotations: this.savedAnnotations.map(ann => ({
+          label: {
+            id: ann.label.id,
+            text: ann.label.text,
+            categoryId: ann.label.categoryId,
+            color: ann.label.color
+          },
+          segments: ann.segments,
+          prompt: ann.prompt,
+          expert_output: ann.expertOutput
+        })),
+        export_time: new Date().toISOString()
+      };
+      const blob = new Blob([JSON.stringify(exportData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      a.download = `${this.selectedFileName}.json`;
+      a.click();
+      URL.revokeObjectURL(url);
+      this.showToast('标注已导出', 'success');
+    }
   }
 };
 </script>

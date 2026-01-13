@@ -69,6 +69,10 @@ def save_annotations(filename, current_user):
     try:
         data = request.get_json()
         
+        # Fix CR-06: Input validation
+        if data is None:
+            return jsonify({'success': False, 'error': 'Invalid JSON data'}), 400
+        
         # Field normalization and structure validation
         if 'filename' in data:
             save_data = data
@@ -149,15 +153,20 @@ def download_annotations(filename, current_user):
         with open(annotation_file, 'r', encoding='utf-8') as f:
             data = json.load(f)
         
+        # Fix CR-05: Use new data structure fields
         export_annotations = []
         for ann in data.get('annotations', []):
             export_annotations.append({
-                'categories': ann.get('categories', {}),
-                'local_change': ann.get('local_change', {})
+                'id': ann.get('id'),
+                'label': ann.get('label', {}),
+                'segments': ann.get('segments', []),
+                'prompt': ann.get('prompt', ''),
+                'expertOutput': ann.get('expertOutput', ann.get('expert_output', ''))
             })
         
         return jsonify({
             'annotations': export_annotations,
+            'overall_attribute': data.get('overall_attribute', {}),
             'export_time': datetime.now().isoformat(),
             'filename': filename
         })

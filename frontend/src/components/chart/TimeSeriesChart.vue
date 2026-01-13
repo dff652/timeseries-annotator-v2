@@ -73,10 +73,33 @@ export default {
       },
       immediate: false
     },
+    // Fix CR-03: Sync labelList changes to D3
+    labelList: {
+      handler(newVal) {
+        if (this.plottingApp && newVal) {
+          this.plottingApp.labelList = newVal.map(l => ({ name: l.text, color: l.color }));
+          // Trigger recolor if chart is already rendered
+          if (this.plottingApp.main) {
+            this.recolor();
+          }
+        }
+      },
+      deep: true
+    },
     selectedLabel(newVal) {
       if (this.plottingApp) {
         this.plottingApp.selectedLabel = newVal;
         this.plottingApp.labelColor = this.labelColor;
+        // Fix CR-01/CR-03: Also update labelList with this label if not present
+        if (newVal && this.labelColor) {
+          if (!this.plottingApp.labelList) this.plottingApp.labelList = [];
+          const existing = this.plottingApp.labelList.find(l => l.name === newVal);
+          if (!existing) {
+            this.plottingApp.labelList.push({ name: newVal, color: this.labelColor });
+          } else {
+            existing.color = this.labelColor;
+          }
+        }
       }
     },
     labelColor(newVal) {
